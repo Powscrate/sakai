@@ -1,3 +1,4 @@
+
 // src/components/chat/chat-assistant.tsx
 "use client";
 
@@ -42,18 +43,19 @@ export function ChatAssistant() {
     if (!input.trim() || isLoading) return;
 
     const newUserMessage: ChatMessage = { role: 'user', parts: input.trim() };
-    setMessages(prev => [...prev, newUserMessage]);
-    const currentInput = input;
+    
+    // Add user message and model placeholder in a single state update to ensure `history` is correct
+    setMessages(prev => [...prev, newUserMessage, { role: 'model', parts: '' }]);
+    const currentInput = input; // Save input before clearing
+    const currentHistory = [...messages, newUserMessage]; // History to send to the flow
+
     setInput('');
     setIsLoading(true);
 
-    // Add a placeholder for the model's response immediately
-    setMessages(prev => [...prev, { role: 'model', parts: '' }]);
-
     try {
       await streamChatAssistant(
-        { history: [...messages, newUserMessage] }, // Send the current history including the new user message
-        (chunk) => { // onChunk callback
+        { history: currentHistory }, 
+        (chunk) => { 
           if (chunk.text) {
             setMessages(prev => {
               const lastMessageIndex = prev.length - 1;
@@ -61,12 +63,11 @@ export function ChatAssistant() {
                 const updatedMessages = [...prev];
                 updatedMessages[lastMessageIndex] = {
                   ...updatedMessages[lastMessageIndex],
-                  parts: updatedMessages[lastMessageIndex].parts + chunk.text!,
+                  parts: updatedMessages[lastMessageIndex].parts + chunk.text,
                 };
                 return updatedMessages;
               }
-              // This case should ideally not happen if placeholder is added correctly
-              return [...prev, { role: 'model', parts: chunk.text! }];
+              return [...prev, { role: 'model', parts: chunk.text }];
             });
           }
         }
@@ -96,7 +97,7 @@ export function ChatAssistant() {
   return (
     <>
       <Button
-        variant="default" // Changed variant for more visibility
+        variant="default"
         size="icon"
         className="fixed bottom-6 right-6 rounded-full h-14 w-14 shadow-lg z-50"
         onClick={() => setIsOpen(!isOpen)}
@@ -130,16 +131,15 @@ export function ChatAssistant() {
                     )}
                   >
                     {msg.role === 'model' && <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />}
-                    <p className="text-sm whitespace-pre-wrap">{msg.parts}</p>
+                    {/* Display loader inside the model message bubble if it's the last one, loading, and empty */}
+                    {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    ) : (
+                      <p className="text-sm whitespace-pre-wrap">{msg.parts}</p>
+                    )}
                     {msg.role === 'user' && <User className="h-5 w-5 shrink-0 mt-0.5" />}
                   </div>
                 ))}
-                {isLoading && messages.length > 0 && messages[messages.length -1]?.role === 'model' && messages[messages.length -1]?.parts === '' && (
-                   <div className="flex items-start gap-2.5 p-3 rounded-lg max-w-[85%] mr-auto bg-muted text-foreground">
-                     <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
-                     <Loader2 className="h-5 w-5 animate-spin" />
-                   </div>
-                )}
               </div>
             </ScrollArea>
           </CardContent>

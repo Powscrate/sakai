@@ -9,7 +9,7 @@
  */
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import type {GenerateResult, StreamingCallback, MessageData, Part} from 'genkit';
+import type {GenerateResult, MessageData, Part} from 'genkit'; // Removed StreamingCallback as it's not used for onChunk type anymore
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -25,10 +25,19 @@ const ChatAssistantInputSchema = z.object({
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
+// Define the expected chunk structure for the callback, matching ai.generateStream's output
+type ChatStreamChunk = {
+  text?: string;
+  // Include other properties from GenerateStreamResponseChunk if they were to be used by the client
+  // toolRequests?: any[]; 
+  // toolResponses?: any[];
+  // custom?: any;
+  // error?: string;
+};
 
 export async function streamChatAssistant(
   input: ChatAssistantInput,
-  onChunk: StreamingCallback<string>
+  onChunk: (chunk: ChatStreamChunk) => void | Promise<void> // Use the more accurate callback type
 ): Promise<GenerateResult | undefined> {
 
   const systemMessage: ChatMessage = {
@@ -48,10 +57,9 @@ export async function streamChatAssistant(
 
   const {stream, response} = ai.generateStream({
     messages: messagesForApi,
-    // model: 'googleai/gemini-1.5-flash-latest', // Using the pre-configured model in genkit.ts is preferred. if genkit.ts model is gemini-2.0-flash, it will be used.
     config: {
       temperature: 0.7,
-       safetySettings: [ // Added safety settings as an example, adjust as needed
+       safetySettings: [
         {
           category: 'HARM_CATEGORY_HARASSMENT',
           threshold: 'BLOCK_MEDIUM_AND_ABOVE',
@@ -70,7 +78,7 @@ export async function streamChatAssistant(
         },
       ]
     },
-    streamingCallback: onChunk,
+    streamingCallback: onChunk, // Pass the callback directly
   });
 
   for await (const _ of stream) {
@@ -78,4 +86,3 @@ export async function streamChatAssistant(
   }
   return await response; 
 }
-
