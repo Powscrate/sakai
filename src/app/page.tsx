@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
-import { BarChart, LineChart, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, Legend as RechartsLegend, Bar, Line, ResponsiveContainer } from 'recharts';
+import { LineChart, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, Legend as RechartsLegend, Line, ResponsiveContainer } from 'recharts'; // Removed BarChart import as it's not used and LineChart is preferred here
 import useLocalStorage from '@/hooks/use-local-storage';
 import type { MetricEntry, MetricDefinition } from '@/types';
 import { PREDEFINED_METRICS, findMetricDefinition } from '@/config/metrics';
@@ -15,27 +15,39 @@ import type { DateRange } from 'react-day-picker';
 import { subDays, format, parseISO, isValid, compareAsc } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import Link from 'next/link';
-import { TrendingUp, PlusCircle, BarChart3 as BarChartIcon } from 'lucide-react'; // Renamed BarChart3 to avoid conflict
+import { TrendingUp, PlusCircle, LineChart as LineChartIcon } from 'lucide-react'; // Changed BarChartIcon to LineChartIcon for consistency
 
 export default function DashboardPage() {
   const [metricEntries] = useLocalStorage<MetricEntry[]>('metricEntries', []);
   const [customMetrics] = useLocalStorage<MetricDefinition[]>('customMetrics', []);
   const [selectedMetricId, setSelectedMetricId] = useState<string>('');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 30),
-    to: new Date(),
-  });
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [isClient, setIsClient] = useState(false);
 
   const allMetricDefinitions = useMemo(() => [...PREDEFINED_METRICS, ...customMetrics], [customMetrics]);
 
   useEffect(() => {
-    if (!selectedMetricId && allMetricDefinitions.length > 0) {
+    setIsClient(true);
+    setDateRange({
+      from: subDays(new Date(), 30),
+      to: new Date(),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isClient && !selectedMetricId && allMetricDefinitions.length > 0) {
       setSelectedMetricId(allMetricDefinitions[0].id);
     }
-  }, [selectedMetricId, allMetricDefinitions]);
+  }, [selectedMetricId, allMetricDefinitions, isClient]);
   
+  const startOfDay = (date: Date) => {
+    const newDate = new Date(date);
+    newDate.setHours(0, 0, 0, 0);
+    return newDate;
+  };
+
   const filteredData = useMemo(() => {
-    if (!selectedMetricId) return [];
+    if (!selectedMetricId || !dateRange?.from) return []; // Ensure dateRange.from is checked
     return metricEntries
       .filter(entry => {
         const entryDate = parseISO(entry.date);
@@ -66,11 +78,32 @@ export default function DashboardPage() {
     };
   }, [selectedMetricDef]);
 
-  const startOfDay = (date: Date) => {
-    const newDate = new Date(date);
-    newDate.setHours(0, 0, 0, 0);
-    return newDate;
-  };
+
+  if (!isClient) {
+    // Render a placeholder or loading state on the server and initial client render
+    return (
+      <div className="space-y-6 animate-pulse">
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0 pb-2">
+            <div className="h-8 bg-muted rounded w-1/3"></div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 md:gap-4 w-full sm:w-auto">
+              <div className="h-10 bg-muted rounded w-full sm:w-[200px]"></div>
+              <div className="h-10 bg-muted rounded w-full sm:w-[260px]"></div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[400px] bg-muted rounded"></div>
+          </CardContent>
+        </Card>
+         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Card><CardHeader><div className="h-6 bg-muted rounded w-1/2"></div></CardHeader><CardContent><div className="h-20 bg-muted rounded"></div></CardContent></Card>
+          <Card><CardHeader><div className="h-6 bg-muted rounded w-1/2"></div></CardHeader><CardContent><div className="h-20 bg-muted rounded"></div></CardContent></Card>
+          <Card><CardHeader><div className="h-6 bg-muted rounded w-1/2"></div></CardHeader><CardContent><div className="h-20 bg-muted rounded"></div></CardContent></Card>
+        </div>
+      </div>
+    );
+  }
+
 
   if (allMetricDefinitions.length === 0 && metricEntries.length === 0) {
      return (
@@ -150,6 +183,7 @@ export default function DashboardPage() {
                 <Line
                   type="monotone"
                   dataKey="value"
+                  name={selectedMetricDef.name} // Added name for legend
                   stroke={`var(--color-${selectedMetricDef.id})`}
                   strokeWidth={2}
                   dot={{
@@ -167,7 +201,7 @@ export default function DashboardPage() {
             </ChartContainer>
           ) : (
             <div className="flex flex-col items-center justify-center h-[400px] text-center p-4">
-              <BarChartIcon className="h-12 w-12 text-muted-foreground mb-4" />
+              <LineChartIcon className="h-12 w-12 text-muted-foreground mb-4" /> {/* Changed icon */}
               <p className="text-lg font-semibold">Aucune donnée disponible</p>
               <p className="text-muted-foreground">
                 {metricEntries.length === 0 ? "Enregistrez des données pour voir les graphiques." : `Aucune donnée pour ${selectedMetricDef?.name || 'la métrique sélectionnée'} dans cette période.`}
@@ -196,7 +230,7 @@ export default function DashboardPage() {
                   <div>
                     <span className="font-medium">{def?.name || entry.metricId}</span>: <span className="text-primary">{entry.value} {def?.unit}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{format(parseISO(entry.date), 'MMM dd', { locale: fr })}</span>
+                  <span className="text-xs text-muted-foreground">{isValid(parseISO(entry.date)) ? format(parseISO(entry.date), 'MMM dd', { locale: fr }) : 'Date invalide'}</span>
                 </div>
               );
             })}

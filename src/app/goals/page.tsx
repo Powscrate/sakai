@@ -39,6 +39,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Skeleton } from '@/components/ui/skeleton';
 
 const goalFormSchema = z.object({
   metricId: z.string().min(1, "Le type de métrique est requis."),
@@ -57,6 +58,8 @@ export default function GoalsPage() {
   const [customMetrics] = useLocalStorage<CustomMetric[]>('customMetrics', []);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
+  const [clientNow, setClientNow] = useState<Date | null>(null);
 
   const allMetricDefinitions = useMemo(() => [...PREDEFINED_METRICS, ...customMetrics], [customMetrics]);
 
@@ -66,30 +69,37 @@ export default function GoalsPage() {
       metricId: "",
       description: "",
       targetValue: undefined,
-      startDate: new Date(),
-      deadline: new Date(new Date().setDate(new Date().getDate() + 30)), 
+      startDate: undefined, // Will be set in useEffect
+      deadline: undefined,  // Will be set in useEffect
     },
   });
 
   useEffect(() => {
+    setIsClient(true);
+    setClientNow(new Date());
+  }, []);
+
+  useEffect(() => {
+    if (!isClient) return;
+
     if (editingGoal) {
       goalForm.reset({
         metricId: editingGoal.metricId,
         description: editingGoal.description,
         targetValue: editingGoal.targetValue,
-        startDate: parseISO(editingGoal.startDate),
-        deadline: parseISO(editingGoal.deadline),
+        startDate: isValid(parseISO(editingGoal.startDate)) ? parseISO(editingGoal.startDate) : new Date(),
+        deadline: isValid(parseISO(editingGoal.deadline)) ? parseISO(editingGoal.deadline) : new Date(new Date().setDate(new Date().getDate() + 30)),
       });
     } else {
        goalForm.reset({
-        metricId: allMetricDefinitions[0]?.id || "",
+        metricId: allMetricDefinitions.length > 0 ? allMetricDefinitions[0].id : "",
         description: "",
         targetValue: undefined,
         startDate: new Date(),
         deadline: new Date(new Date().setDate(new Date().getDate() + 30)),
       });
     }
-  }, [editingGoal, goalForm, customMetrics, allMetricDefinitions]);
+  }, [editingGoal, goalForm, allMetricDefinitions, isClient]);
 
   const calculateCurrentValue = (goal: Pick<Goal, 'metricId' | 'startDate' | 'deadline'>): number => {
     const relevantEntries = metricEntries.filter(entry => {
@@ -130,8 +140,8 @@ export default function GoalsPage() {
       setGoals(prev => [newGoal, ...prev].sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       toast({ title: "Objectif Défini", description: "Le nouvel objectif a été défini avec succès." });
     }
-    goalForm.reset({
-      metricId: allMetricDefinitions[0]?.id || "",
+    goalForm.reset({ // Reset with client-side dates
+      metricId: allMetricDefinitions.length > 0 ? allMetricDefinitions[0].id : "",
       description: "",
       targetValue: undefined,
       startDate: new Date(),
@@ -152,6 +162,7 @@ export default function GoalsPage() {
   };
 
   useEffect(() => {
+    // Update currentValue for all goals when metricEntries change
     setGoals(prevGoals => prevGoals.map(goal => {
       const currentValue = calculateCurrentValue(goal);
       return {
@@ -160,16 +171,45 @@ export default function GoalsPage() {
         isAchieved: currentValue >= goal.targetValue,
       };
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metricEntries]); 
+  // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, [metricEntries, setGoals]); // setGoals is stable from useLocalStorage
 
   const sortedGoals = useMemo(() => {
+    if (!clientNow) return goals; // Return unsorted or previous goals if clientNow is not set
     return [...goals].sort((a, b) => {
       if (a.isAchieved !== b.isAchieved) return a.isAchieved ? 1 : -1;
-      if (!isValid(parseISO(a.deadline)) || !isValid(parseISO(b.deadline))) return 0;
-      return differenceInDays(parseISO(a.deadline), new Date()) - differenceInDays(parseISO(b.deadline), new Date());
+      const aDeadline = parseISO(a.deadline);
+      const bDeadline = parseISO(b.deadline);
+      if (!isValid(aDeadline) || !isValid(bDeadline)) return 0;
+      return differenceInDays(aDeadline, clientNow) - differenceInDays(bDeadline, clientNow);
     });
-  }, [goals]);
+  }, [goals, clientNow]);
+
+  if (!isClient) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <Card>
+          <CardHeader><Skeleton className="h-8 w-3/5" /></CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-1/3" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-7 w-1/4" /></CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-40 w-full" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -252,7 +292,7 @@ export default function GoalsPage() {
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                              {field.value ? format(field.value, "PPP", { locale: fr }) : <span>Choisir une date</span>}
+                              {field.value && isValid(field.value) ? format(field.value, "PPP", { locale: fr }) : <span>Choisir une date</span>}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
@@ -275,13 +315,13 @@ export default function GoalsPage() {
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                              {field.value ? format(field.value, "PPP", { locale: fr }) : <span>Choisir une date</span>}
+                              {field.value && isValid(field.value) ? format(field.value, "PPP", { locale: fr }) : <span>Choisir une date</span>}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => date < (goalForm.getValues("startDate") || new Date("1900-01-01"))} initialFocus locale={fr} />
+                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => { const startDate = goalForm.getValues("startDate"); return startDate && isValid(startDate) ? date < startDate : date < new Date("1900-01-01");}} initialFocus locale={fr} />
                         </PopoverContent>
                       </Popover>
                       <FormMessage />
@@ -295,7 +335,7 @@ export default function GoalsPage() {
                   {editingGoal ? "Mettre à Jour l'Objectif" : "Définir l'Objectif"}
                 </Button>
                  {editingGoal && (
-                  <Button type="button" variant="outline" onClick={() => { setEditingGoal(null); goalForm.reset(); }}>
+                  <Button type="button" variant="outline" onClick={() => { setEditingGoal(null); /* Form reset is handled by useEffect */ }}>
                     Annuler Modification
                   </Button>
                 )}
@@ -316,9 +356,9 @@ export default function GoalsPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {sortedGoals.map((goal) => {
               const metricDef = findMetricDefinition(goal.metricId, customMetrics);
-              const progress = Math.min(100, (goal.currentValue / goal.targetValue) * 100);
-               const deadlineDate = parseISO(goal.deadline);
-              const daysLeft = isValid(deadlineDate) ? differenceInDays(deadlineDate, new Date()) : NaN;
+              const progress = Math.min(100, (goal.targetValue > 0 ? (goal.currentValue / goal.targetValue) * 100 : 0));
+              const deadlineDate = parseISO(goal.deadline);
+              const daysLeft = clientNow && isValid(deadlineDate) ? differenceInDays(deadlineDate, clientNow) : NaN;
               const isOverdue = !isNaN(daysLeft) && daysLeft < 0 && !goal.isAchieved;
               
               return (

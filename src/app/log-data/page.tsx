@@ -39,7 +39,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+} from "@/components/ui/alert-dialog";
+import { Skeleton } from '@/components/ui/skeleton';
 
 const formSchema = z.object({
   metricId: z.string().min(1, "Le type de métrique est requis."),
@@ -52,42 +53,48 @@ export default function LogDataPage() {
   const [metricEntries, setMetricEntries] = useLocalStorage<MetricEntry[]>('metricEntries', []);
   const [customMetrics] = useLocalStorage<CustomMetric[]>('customMetrics', []);
   const [editingEntry, setEditingEntry] = useState<MetricEntry | null>(null);
-
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
 
   const allMetricDefinitions = useMemo(() => [...PREDEFINED_METRICS, ...customMetrics], [customMetrics]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      metricId: PREDEFINED_METRICS[0]?.id || "",
-      date: new Date(),
+      metricId: "", // Will be set by useEffect
+      date: undefined, // Will be set by useEffect
       value: undefined,
       notes: "",
     },
   });
+  
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
+    if (!isClient) return;
+
     if (editingEntry) {
-      const metricDef = findMetricDefinition(editingEntry.metricId, customMetrics);
+      // const metricDef = findMetricDefinition(editingEntry.metricId, customMetrics); // Not strictly needed for reset
       form.reset({
         metricId: editingEntry.metricId,
-        date: parseISO(editingEntry.date),
+        date: isValid(parseISO(editingEntry.date)) ? parseISO(editingEntry.date) : new Date(),
         value: editingEntry.value,
         notes: editingEntry.notes || "",
       });
-      if (metricDef) {
-        form.setValue('metricId', metricDef.id);
-      }
+      // if (metricDef) { // This setValue call is fine as it's client-side but reset should handle it
+      //   form.setValue('metricId', metricDef.id); 
+      // }
     } else {
       form.reset({
-        metricId: allMetricDefinitions[0]?.id || "",
+        metricId: allMetricDefinitions.length > 0 ? allMetricDefinitions[0].id : "",
         date: new Date(),
         value: undefined,
         notes: "",
       });
     }
-  }, [editingEntry, form, customMetrics, allMetricDefinitions]);
+  }, [editingEntry, form, allMetricDefinitions, customMetrics, isClient]); // Added allMetricDefinitions
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -108,8 +115,8 @@ export default function LogDataPage() {
       setMetricEntries(prev => [newEntry, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ));
       toast({ title: "Entrée Enregistrée", description: "Nouvelle entrée de métrique enregistrée avec succès." });
     }
-    form.reset({
-        metricId: allMetricDefinitions[0]?.id || "",
+    form.reset({ // Reset with client-side dates
+        metricId: allMetricDefinitions.length > 0 ? allMetricDefinitions[0].id : "",
         date: new Date(),
         value: undefined,
         notes: "",
@@ -130,9 +137,35 @@ export default function LogDataPage() {
 
   const recentEntries = useMemo(() => {
     return [...metricEntries]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => {
+        const dateA = parseISO(a.date);
+        const dateB = parseISO(b.date);
+        if (!isValid(dateA) || !isValid(dateB)) return 0;
+        return dateB.getTime() - dateA.getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      })
       .slice(0, 10);
   }, [metricEntries]);
+
+  if (!isClient) {
+     return (
+      <div className="space-y-6 animate-pulse">
+        <Card>
+          <CardHeader><Skeleton className="h-8 w-3/5" /></CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-10 w-1/3" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-7 w-1/4" /></CardHeader>
+          <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -187,7 +220,7 @@ export default function LogDataPage() {
                                 !field.value && "text-muted-foreground"
                               )}
                             >
-                              {field.value ? (
+                              {field.value && isValid(field.value) ? (
                                 format(field.value, "PPP", { locale: fr })
                               ) : (
                                 <span>Choisir une date</span>
@@ -258,7 +291,7 @@ export default function LogDataPage() {
                   {editingEntry ? "Mettre à Jour" : "Enregistrer"}
                 </Button>
                 {editingEntry && (
-                  <Button type="button" variant="outline" onClick={() => { setEditingEntry(null); form.reset(); }}>
+                  <Button type="button" variant="outline" onClick={() => { setEditingEntry(null); /* Form reset is handled by useEffect */ }}>
                     Annuler Modification
                   </Button>
                 )}
@@ -280,6 +313,7 @@ export default function LogDataPage() {
             <ul className="space-y-3">
               {recentEntries.map((entry) => {
                 const metricDef = findMetricDefinition(entry.metricId, customMetrics);
+                const entryDate = parseISO(entry.date);
                 return (
                   <li key={entry.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg shadow-sm">
                     <div className="flex items-center gap-3">
@@ -291,7 +325,7 @@ export default function LogDataPage() {
                           {metricDef?.unit}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {format(parseISO(entry.date), 'PPP', { locale: fr })}
+                          {isValid(entryDate) ? format(entryDate, 'PPP', { locale: fr }) : "Date invalide"}
                           {entry.notes && ` - ${entry.notes.substring(0,30)}${entry.notes.length > 30 ? '...' : ''}`}
                         </p>
                       </div>
