@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { AppShell } from '@/components/layout/app-shell';
 import { Toaster } from "@/components/ui/toaster";
+import { ChatAssistant } from '@/components/chat/chat-assistant';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -15,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Life Insights',
-  description: 'Track and analyze your life metrics.',
+  title: 'Perspectives de Vie',
+  description: 'Suivez et analysez vos métriques de vie.',
 };
 
 export default function RootLayout({
@@ -25,11 +26,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="fr" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AppShell>
           {children}
         </AppShell>
+        <ChatAssistant />
         <Toaster />
       </body>
     </html>

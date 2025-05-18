@@ -1,24 +1,24 @@
 // trend-explanation.ts
 'use server';
 /**
- * @fileOverview Trend explanation AI agent.
+ * @fileOverview Agent IA pour l'explication des tendances.
  *
- * - trendExplanation - A function that handles the trend explanation process.
- * - TrendExplanationInput - The input type for the trendExplanation function.
- * - TrendExplanationOutput - The return type for the trendExplanation function.
+ * - trendExplanation - Une fonction qui gère le processus d'explication des tendances.
+ * - TrendExplanationInput - Le type d'entrée pour la fonction trendExplanation.
+ * - TrendExplanationOutput - Le type de retour pour la fonction trendExplanation.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const TrendExplanationInputSchema = z.object({
-  metricsData: z.string().describe('The user life metrics data in JSON format.'),
-  trendDescription: z.string().describe('The description of the trend.'),
+  metricsData: z.string().describe("Les données des métriques de vie de l'utilisateur au format JSON."),
+  trendDescription: z.string().describe("La description de la tendance et la période concernée. Inclut aussi la date actuelle pour contexte et la langue de réponse souhaitée."),
 });
 export type TrendExplanationInput = z.infer<typeof TrendExplanationInputSchema>;
 
 const TrendExplanationOutputSchema = z.object({
-  explanation: z.string().describe('The natural language explanation of the trend.'),
+  explanation: z.string().describe("L'explication en langage naturel de la tendance, en français."),
 });
 export type TrendExplanationOutput = z.infer<typeof TrendExplanationOutputSchema>;
 
@@ -30,15 +30,16 @@ const prompt = ai.definePrompt({
   name: 'trendExplanationPrompt',
   input: {schema: TrendExplanationInputSchema},
   output: {schema: TrendExplanationOutputSchema},
-  prompt: `You are an AI assistant specialized in explaining trends in life metrics data.
+  prompt: `Vous êtes un assistant IA spécialisé dans l'explication des tendances des données de métriques de vie.
+  Vous devez impérativement répondre en FRANÇAIS.
 
-  You will receive life metrics data and a description of a trend in that data.
-  You will provide a natural language explanation of the trend, making it easy for the user to understand.
+  Vous recevrez des données de métriques de vie et une description d'une tendance dans ces données, incluant la période et la date actuelle.
+  Vous fournirez une explication en langage naturel de la tendance, la rendant facile à comprendre pour l'utilisateur. Soyez perspicace et mettez en évidence les points clés.
 
-  Life Metrics Data: {{{metricsData}}}
-  Trend Description: {{{trendDescription}}}
+  Données des Métriques de Vie (JSON): {{{metricsData}}}
+  Description de la Tendance: {{{trendDescription}}}
 
-  Explanation: `,
+  Explication (en français): `,
 });
 
 const trendExplanationFlow = ai.defineFlow(

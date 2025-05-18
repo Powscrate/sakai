@@ -1,24 +1,24 @@
 // src/app/trends/page.tsx
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PREDEFINED_METRICS, findMetricDefinition } from '@/config/metrics';
-import type { MetricEntry, MetricDefinition, CustomMetric } from '@/types';
+import type { MetricEntry, CustomMetric } from '@/types';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { trendExplanation, TrendExplanationInput } from '@/ai/flows/trend-explanation';
 import { Loader2, Lightbulb, AlertTriangle, Search } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from "@/components/ui/skeleton";
 import { format, subDays, parseISO, isValid } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
-// Placeholder for DateRangePicker until created (using simplified inputs for now)
 const TrendDateRangeSelector = ({ onRangeSelect }: { onRangeSelect: (days: number) => void }) => {
   const ranges = [
-    { label: 'Last 7 Days', value: 7 },
-    { label: 'Last 30 Days', value: 30 },
-    { label: 'Last 90 Days', value: 90 },
+    { label: '7 derniers jours', value: 7 },
+    { label: '30 derniers jours', value: 30 },
+    { label: '90 derniers jours', value: 90 },
   ];
   const [selectedRange, setSelectedRange] = useState<string>("30");
 
@@ -28,8 +28,8 @@ const TrendDateRangeSelector = ({ onRangeSelect }: { onRangeSelect: (days: numbe
 
   return (
     <Select value={selectedRange} onValueChange={setSelectedRange}>
-      <SelectTrigger className="w-[180px]">
-        <SelectValue placeholder="Select Period" />
+      <SelectTrigger className="w-full sm:w-[200px]">
+        <SelectValue placeholder="Sélectionner période" />
       </SelectTrigger>
       <SelectContent>
         {ranges.map(range => (
@@ -65,7 +65,7 @@ export default function TrendsPage() {
 
   const handleAnalyzeTrend = async () => {
     if (!selectedMetricId) {
-      setError("Please select a metric to analyze.");
+      setError("Veuillez sélectionner une métrique à analyser.");
       return;
     }
     
@@ -76,7 +76,7 @@ export default function TrendsPage() {
     try {
       const metricDef = findMetricDefinition(selectedMetricId, customMetrics);
       if (!metricDef) {
-        throw new Error("Metric definition not found.");
+        throw new Error("Définition de la métrique non trouvée.");
       }
 
       const fromDate = subDays(new Date(), selectedPeriodDays);
@@ -85,46 +85,51 @@ export default function TrendsPage() {
             const entryDate = parseISO(entry.date);
             return entry.metricId === selectedMetricId && isValid(entryDate) && entryDate >= fromDate;
         })
-        .map(entry => ({ date: entry.date, value: entry.value })); // Keep it simple for AI
+        .map(entry => ({ date: entry.date, value: entry.value })); 
 
-      if (relevantEntries.length < 3) { // Need some data points for a trend
-        setError(`Not enough data for ${metricDef.name} in the last ${selectedPeriodDays} days to analyze a trend. At least 3 data points are recommended.`);
+      if (relevantEntries.length < 3) { 
+        setError(`Pas assez de données pour ${metricDef.name} sur les ${selectedPeriodDays} derniers jours pour analyser une tendance. Au moins 3 points de données sont recommandés.`);
         setIsLoading(false);
         return;
       }
       
       const input: TrendExplanationInput = {
         metricsData: JSON.stringify(relevantEntries),
-        trendDescription: `Analyze the trend for ${metricDef.name} (${metricDef.unit}) over the last ${selectedPeriodDays} days. Data points: ${relevantEntries.length}. Today is ${format(new Date(), 'yyyy-MM-dd')}.`,
+        trendDescription: `Analysez la tendance pour ${metricDef.name} (${metricDef.unit}) sur les ${selectedPeriodDays} derniers jours. Nombre de points de données: ${relevantEntries.length}. La date d'aujourd'hui est ${format(new Date(), 'dd/MM/yyyy', { locale: fr })}. Répondez en français.`,
       };
 
       const result = await trendExplanation(input);
       setExplanation(result.explanation);
 
     } catch (e: any) {
-      console.error("Error analyzing trend:", e);
-      setError(e.message || "Failed to analyze trend. Please try again.");
+      console.error("Erreur lors de l'analyse de la tendance:", e);
+      setError(e.message || "Échec de l'analyse de la tendance. Veuillez réessayer.");
     } finally {
       setIsLoading(false);
     }
   };
+  
+  const handlePeriodChange = useCallback((days: number) => {
+    setSelectedPeriodDays(days);
+  }, []);
+
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Trend Analyzer</CardTitle>
+          <CardTitle className="text-2xl font-bold">Analyseur de Tendances</CardTitle>
           <CardDescription>
-            Discover patterns and correlations in your life metrics using AI-powered analysis.
+            Découvrez des modèles et des corrélations dans vos métriques de vie grâce à l'analyse IA.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
-            <div className="flex-1">
-              <label htmlFor="metric-select" className="block text-sm font-medium text-foreground mb-1">Select Metric</label>
+            <div className="flex-1 min-w-0">
+              <label htmlFor="metric-select" className="block text-sm font-medium text-foreground mb-1">Sélectionner la Métrique</label>
               <Select value={selectedMetricId} onValueChange={setSelectedMetricId}>
                 <SelectTrigger id="metric-select" className="w-full sm:w-[240px]">
-                  <SelectValue placeholder="Choose a metric" />
+                  <SelectValue placeholder="Choisir une métrique" />
                 </SelectTrigger>
                 <SelectContent>
                   {allMetricDefinitions.map((metric) => (
@@ -135,17 +140,17 @@ export default function TrendsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1">
-               <label htmlFor="period-select" className="block text-sm font-medium text-foreground mb-1">Select Period</label>
-              <TrendDateRangeSelector onRangeSelect={setSelectedPeriodDays} />
+            <div className="flex-1 min-w-0">
+               <label htmlFor="period-select" className="block text-sm font-medium text-foreground mb-1">Sélectionner la Période</label>
+              <TrendDateRangeSelector onRangeSelect={handlePeriodChange} />
             </div>
-            <Button onClick={handleAnalyzeTrend} disabled={isLoading || !selectedMetricId} className="w-full sm:w-auto">
+            <Button onClick={handleAnalyzeTrend} disabled={isLoading || !selectedMetricId} className="w-full sm:w-auto mt-4 sm:mt-0 self-end">
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Search className="mr-2 h-4 w-4" />
               )}
-              Analyze Trend
+              Analyser la Tendance
             </Button>
           </div>
         </CardContent>
@@ -156,7 +161,7 @@ export default function TrendsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              Analyzing...
+              Analyse en cours...
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -172,7 +177,7 @@ export default function TrendsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
-              Analysis Error
+              Erreur d'Analyse
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -186,15 +191,15 @@ export default function TrendsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-primary">
               <Lightbulb className="h-5 w-5" />
-              Trend Insight
+              Aperçu de la Tendance
             </CardTitle>
              <CardDescription>
-              AI-generated explanation for {findMetricDefinition(selectedMetricId, customMetrics)?.name} over the last {selectedPeriodDays} days.
+              Explication générée par IA pour {findMetricDefinition(selectedMetricId, customMetrics)?.name} sur les {selectedPeriodDays} derniers jours.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="prose prose-sm max-w-none text-foreground">
-              {explanation.split('\\n').map((paragraph, index) => (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-foreground">
+              {explanation.split('\n').map((paragraph, index) => ( // Changed \\n to \n for direct newlines
                 <p key={index}>{paragraph}</p>
               ))}
             </div>
@@ -205,8 +210,8 @@ export default function TrendsPage() {
         <Card className="border-dashed">
           <CardContent className="p-10 text-center">
              <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-lg font-medium">Ready to find some insights?</p>
-            <p className="text-muted-foreground">Select a metric and period, then click "Analyze Trend".</p>
+            <p className="text-lg font-medium">Prêt à découvrir des informations ?</p>
+            <p className="text-muted-foreground">Sélectionnez une métrique et une période, puis cliquez sur "Analyser la Tendance".</p>
           </CardContent>
         </Card>
       )}

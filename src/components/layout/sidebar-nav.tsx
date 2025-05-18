@@ -8,7 +8,6 @@ import {
   PencilLine,
   Target,
   TrendingUp,
-  BarChart3,
 } from 'lucide-react';
 import {
   SidebarMenu,
@@ -18,10 +17,10 @@ import {
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/log-data', label: 'Log Data', icon: PencilLine },
-  { href: '/goals', label: 'Goals', icon: Target },
-  { href: '/trends', label: 'Trends', icon: TrendingUp },
+  { href: '/', label: 'Tableau de Bord', icon: LayoutDashboard },
+  { href: '/log-data', label: 'Enregistrer Données', icon: PencilLine },
+  { href: '/goals', label: 'Objectifs', icon: Target },
+  { href: '/trends', label: 'Tendances', icon: TrendingUp },
 ];
 
 export function SidebarNav() {

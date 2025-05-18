@@ -27,7 +27,7 @@ export function AppShell({ children }: AppShellProps) {
         <SidebarHeader className="p-4">
           <div className="flex items-center gap-2">
             <LifeInsightsLogo className="h-8 w-8 text-primary" />
-            <h1 className="text-xl font-semibold">Life Insights</h1>
+            <h1 className="text-xl font-semibold">Perspectives de Vie</h1>
           </div>
         </SidebarHeader>
         <SidebarContent className="flex-1 p-2">
@@ -37,11 +37,11 @@ export function AppShell({ children }: AppShellProps) {
           {/* Placeholder for settings or user actions */}
           <Button variant="ghost" className="w-full justify-start gap-2">
             <Settings className="h-4 w-4" />
-            <span className="group-data-[collapsible=icon]:hidden">Settings</span>
+            <span className="group-data-[collapsible=icon]:hidden">Paramètres</span>
           </Button>
           <Button variant="ghost" className="w-full justify-start gap-2">
             <LogOut className="h-4 w-4" />
-             <span className="group-data-[collapsible=icon]:hidden">Log Out</span>
+             <span className="group-data-[collapsible=icon]:hidden">Déconnexion</span>
           </Button>
         </SidebarFooter>
       </Sidebar>
@@ -50,7 +50,7 @@ export function AppShell({ children }: AppShellProps) {
           <SidebarTrigger />
           <div className="flex items-center gap-2">
              <LifeInsightsLogo className="h-6 w-6 text-primary" />
-             <h1 className="text-lg font-semibold">Life Insights</h1>
+             <h1 className="text-lg font-semibold">Perspectives de Vie</h1>
           </div>
         </header>
         <main className="flex-1 flex-col p-4 md:p-6 lg:p-8">

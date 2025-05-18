@@ -22,11 +22,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PREDEFINED_METRICS, findMetricDefinition } from '@/config/metrics';
-import type { MetricEntry, MetricDefinition, CustomMetric } from '@/types';
+import type { MetricEntry, CustomMetric } from '@/types';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { cn } from '@/lib/utils';
 import { CalendarIcon, PlusCircle, Trash2, Edit3 } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -41,16 +42,15 @@ import {
 } from "@/components/ui/alert-dialog"
 
 const formSchema = z.object({
-  metricId: z.string().min(1, "Metric type is required."),
-  date: z.date({ required_error: "Date is required." }),
-  value: z.coerce.number().min(0.001, "Value must be positive."), // Use coerce for string-to-number conversion
+  metricId: z.string().min(1, "Le type de métrique est requis."),
+  date: z.date({ required_error: "La date est requise." }),
+  value: z.coerce.number().min(0.001, "La valeur doit être positive."),
   notes: z.string().optional(),
 });
 
 export default function LogDataPage() {
   const [metricEntries, setMetricEntries] = useLocalStorage<MetricEntry[]>('metricEntries', []);
-  const [customMetrics, setCustomMetrics] = useLocalStorage<CustomMetric[]>('customMetrics', []);
-  const [isCustomMetricDialogOpen, setIsCustomMetricDialogOpen] = useState(false);
+  const [customMetrics] = useLocalStorage<CustomMetric[]>('customMetrics', []);
   const [editingEntry, setEditingEntry] = useState<MetricEntry | null>(null);
 
   const { toast } = useToast();
@@ -62,7 +62,7 @@ export default function LogDataPage() {
     defaultValues: {
       metricId: PREDEFINED_METRICS[0]?.id || "",
       date: new Date(),
-      value: undefined, // Changed from 0 to undefined to show placeholder
+      value: undefined,
       notes: "",
     },
   });
@@ -77,17 +77,17 @@ export default function LogDataPage() {
         notes: editingEntry.notes || "",
       });
       if (metricDef) {
-        form.setValue('metricId', metricDef.id); // Ensure select updates
+        form.setValue('metricId', metricDef.id);
       }
     } else {
       form.reset({
-        metricId: PREDEFINED_METRICS[0]?.id || (customMetrics.length > 0 ? customMetrics[0].id : ""),
+        metricId: allMetricDefinitions[0]?.id || "",
         date: new Date(),
         value: undefined,
         notes: "",
       });
     }
-  }, [editingEntry, form, customMetrics]);
+  }, [editingEntry, form, customMetrics, allMetricDefinitions]);
 
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -102,14 +102,14 @@ export default function LogDataPage() {
 
     if (editingEntry) {
       setMetricEntries(prev => prev.map(entry => entry.id === editingEntry.id ? newEntry : entry));
-      toast({ title: "Entry Updated", description: "Metric entry has been successfully updated." });
+      toast({ title: "Entrée Mise à Jour", description: "L'entrée de la métrique a été mise à jour avec succès." });
       setEditingEntry(null);
     } else {
       setMetricEntries(prev => [newEntry, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ));
-      toast({ title: "Entry Logged", description: "New metric entry has been successfully logged." });
+      toast({ title: "Entrée Enregistrée", description: "Nouvelle entrée de métrique enregistrée avec succès." });
     }
     form.reset({
-        metricId: PREDEFINED_METRICS[0]?.id || (customMetrics.length > 0 ? customMetrics[0].id : ""),
+        metricId: allMetricDefinitions[0]?.id || "",
         date: new Date(),
         value: undefined,
         notes: "",
@@ -120,7 +120,7 @@ export default function LogDataPage() {
 
   const handleDeleteEntry = (id: string) => {
     setMetricEntries(prev => prev.filter(entry => entry.id !== id));
-    toast({ title: "Entry Deleted", description: "Metric entry has been deleted.", variant: "destructive" });
+    toast({ title: "Entrée Supprimée", description: "L'entrée de la métrique a été supprimée.", variant: "destructive" });
   };
 
   const handleEditEntry = (entry: MetricEntry) => {
@@ -138,9 +138,9 @@ export default function LogDataPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">{editingEntry ? "Edit Metric Entry" : "Log New Metric Entry"}</CardTitle>
+          <CardTitle className="text-2xl font-bold">{editingEntry ? "Modifier l'Entrée de Métrique" : "Enregistrer une Nouvelle Entrée"}</CardTitle>
           <CardDescription>
-            {editingEntry ? "Update the details of your existing metric entry." : "Record your daily metrics to track your progress and gain insights."}
+            {editingEntry ? "Mettez à jour les détails de votre entrée de métrique existante." : "Enregistrez vos métriques quotidiennes pour suivre vos progrès et obtenir des informations."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -152,11 +152,11 @@ export default function LogDataPage() {
                   name="metricId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Metric Type</FormLabel>
+                      <FormLabel>Type de Métrique</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a metric" />
+                            <SelectValue placeholder="Sélectionner une métrique" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -165,8 +165,6 @@ export default function LogDataPage() {
                               {metric.name} ({metric.unit})
                             </SelectItem>
                           ))}
-                          {/* Option to add custom metric (Future enhancement) */}
-                          {/* <SelectItem value="add_custom_metric">Add Custom Metric...</SelectItem> */}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -190,9 +188,9 @@ export default function LogDataPage() {
                               )}
                             >
                               {field.value ? (
-                                format(field.value, "PPP")
+                                format(field.value, "PPP", { locale: fr })
                               ) : (
-                                <span>Pick a date</span>
+                                <span>Choisir une date</span>
                               )}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
@@ -207,6 +205,7 @@ export default function LogDataPage() {
                               date > new Date() || date < new Date("1900-01-01")
                             }
                             initialFocus
+                            locale={fr}
                           />
                         </PopoverContent>
                       </Popover>
@@ -220,16 +219,16 @@ export default function LogDataPage() {
                 name="value"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Value {selectedMetricDef ? `(${selectedMetricDef.unit})` : ''}</FormLabel>
+                    <FormLabel>Valeur {selectedMetricDef ? `(${selectedMetricDef.unit})` : ''}</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
-                        placeholder={selectedMetricDef?.placeholder || "Enter value"}
+                        placeholder={selectedMetricDef?.placeholder || "Entrer la valeur"}
                         min={selectedMetricDef?.min}
                         max={selectedMetricDef?.max}
                         step={selectedMetricDef?.step || "any"}
                         {...field}
-                        onChange={event => field.onChange(+event.target.value)} // Ensure value is number
+                        onChange={event => field.onChange(+event.target.value)}
                       />
                     </FormControl>
                     <FormMessage />
@@ -241,10 +240,10 @@ export default function LogDataPage() {
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes (Optional)</FormLabel>
+                    <FormLabel>Notes (Optionnel)</FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="Any additional details or context..."
+                        placeholder="Détails ou contexte supplémentaires..."
                         className="resize-none"
                         {...field}
                       />
@@ -256,11 +255,11 @@ export default function LogDataPage() {
               <div className="flex gap-2">
                 <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground">
                   <PlusCircle className="mr-2 h-4 w-4" />
-                  {editingEntry ? "Update Entry" : "Log Entry"}
+                  {editingEntry ? "Mettre à Jour" : "Enregistrer"}
                 </Button>
                 {editingEntry && (
                   <Button type="button" variant="outline" onClick={() => { setEditingEntry(null); form.reset(); }}>
-                    Cancel Edit
+                    Annuler Modification
                   </Button>
                 )}
               </div>
@@ -271,12 +270,12 @@ export default function LogDataPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Entries</CardTitle>
-          <CardDescription>Your last 10 logged metric entries.</CardDescription>
+          <CardTitle>Entrées Récentes</CardTitle>
+          <CardDescription>Vos 10 dernières entrées de métriques enregistrées.</CardDescription>
         </CardHeader>
         <CardContent>
           {recentEntries.length === 0 ? (
-            <p className="text-muted-foreground">No entries yet. Log your first metric above!</p>
+            <p className="text-muted-foreground">Aucune entrée pour l'instant. Enregistrez votre première métrique ci-dessus !</p>
           ) : (
             <ul className="space-y-3">
               {recentEntries.map((entry) => {
@@ -292,32 +291,32 @@ export default function LogDataPage() {
                           {metricDef?.unit}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {format(parseISO(entry.date), 'PPP')}
+                          {format(parseISO(entry.date), 'PPP', { locale: fr })}
                           {entry.notes && ` - ${entry.notes.substring(0,30)}${entry.notes.length > 30 ? '...' : ''}`}
                         </p>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                       <Button variant="ghost" size="icon" onClick={() => handleEditEntry(entry)} aria-label="Edit entry">
+                       <Button variant="ghost" size="icon" onClick={() => handleEditEntry(entry)} aria-label="Modifier l'entrée">
                         <Edit3 className="h-4 w-4" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" aria-label="Delete entry">
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" aria-label="Supprimer l'entrée">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                            <AlertDialogTitle>Êtes-vous sûr(e) ?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete this metric entry.
+                              Cette action ne peut pas être annulée. Cela supprimera définitivement cette entrée de métrique.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
                             <AlertDialogAction onClick={() => handleDeleteEntry(entry.id)} className="bg-destructive hover:bg-destructive/90">
-                              Delete
+                              Supprimer
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>

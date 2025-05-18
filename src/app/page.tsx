@@ -10,49 +10,17 @@ import type { MetricEntry, MetricDefinition } from '@/types';
 import { PREDEFINED_METRICS, findMetricDefinition } from '@/config/metrics';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from '@/components/ui/button';
-import { DateRangePicker } from '@/components/ui/date-range-picker'; // Assuming this component exists or will be created
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { subDays, format, parseISO, isValid, compareAsc } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import Link from 'next/link';
-import { TrendingUp, PlusCircle, BarChart3 } from 'lucide-react';
-
-// Placeholder for DateRangePicker until created
-const DateRangePickerPlaceholder = ({ date, onDateChange }: { date?: { from?: Date, to?: Date }, onDateChange: (range: DateRange | undefined) => void }) => {
-  const [fromDate, setFromDate] = useState<string>(date?.from ? format(date.from, 'yyyy-MM-dd') : '');
-  const [toDate, setToDate] = useState<string>(date?.to ? format(date.to, 'yyyy-MM-dd') : '');
-
-  useEffect(() => {
-    setFromDate(date?.from ? format(date.from, 'yyyy-MM-dd') : '');
-    setToDate(date?.to ? format(date.to, 'yyyy-MM-dd') : '');
-  }, [date]);
-
-  const handleApply = () => {
-    const from = parseISO(fromDate);
-    const to = parseISO(toDate);
-    if (isValid(from) && isValid(to)) {
-      onDateChange({ from, to });
-    } else if (isValid(from)) {
-      onDateChange({ from });
-    } else {
-      onDateChange(undefined);
-    }
-  };
-  
-  return (
-    <div className="flex gap-2 items-center">
-      <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="p-2 border rounded-md" />
-      <span className="text-muted-foreground">to</span>
-      <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="p-2 border rounded-md" />
-      <Button onClick={handleApply} size="sm">Apply</Button>
-    </div>
-  );
-};
-
+import { TrendingUp, PlusCircle, BarChart3 as BarChartIcon } from 'lucide-react'; // Renamed BarChart3 to avoid conflict
 
 export default function DashboardPage() {
   const [metricEntries] = useLocalStorage<MetricEntry[]>('metricEntries', []);
   const [customMetrics] = useLocalStorage<MetricDefinition[]>('customMetrics', []);
-  const [selectedMetricId, setSelectedMetricId] = useState<string>(PREDEFINED_METRICS[0]?.id || '');
+  const [selectedMetricId, setSelectedMetricId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subDays(new Date(), 30),
     to: new Date(),
@@ -61,18 +29,18 @@ export default function DashboardPage() {
   const allMetricDefinitions = useMemo(() => [...PREDEFINED_METRICS, ...customMetrics], [customMetrics]);
 
   useEffect(() => {
-    if (!selectedMetricId && PREDEFINED_METRICS.length > 0) {
-      setSelectedMetricId(PREDEFINED_METRICS[0].id);
+    if (!selectedMetricId && allMetricDefinitions.length > 0) {
+      setSelectedMetricId(allMetricDefinitions[0].id);
     }
-  }, [selectedMetricId]);
+  }, [selectedMetricId, allMetricDefinitions]);
   
   const filteredData = useMemo(() => {
     if (!selectedMetricId) return [];
     return metricEntries
       .filter(entry => {
         const entryDate = parseISO(entry.date);
-        const fromDate = dateRange?.from;
-        const toDate = dateRange?.to;
+        const fromDate = dateRange?.from ? startOfDay(dateRange.from) : undefined;
+        const toDate = dateRange?.to ? startOfDay(dateRange.to) : undefined;
         let isInDateRange = true;
         if (fromDate && entryDate < fromDate) isInDateRange = false;
         if (toDate && entryDate > toDate) isInDateRange = false;
@@ -80,7 +48,7 @@ export default function DashboardPage() {
       })
       .sort((a, b) => compareAsc(parseISO(a.date), parseISO(b.date)))
       .map(entry => ({
-        date: format(parseISO(entry.date), 'MMM dd'),
+        date: format(parseISO(entry.date), 'MMM dd', { locale: fr }),
         value: entry.value,
         fullDate: entry.date,
       }));
@@ -98,6 +66,11 @@ export default function DashboardPage() {
     };
   }, [selectedMetricDef]);
 
+  const startOfDay = (date: Date) => {
+    const newDate = new Date(date);
+    newDate.setHours(0, 0, 0, 0);
+    return newDate;
+  };
 
   if (allMetricDefinitions.length === 0 && metricEntries.length === 0) {
      return (
@@ -105,15 +78,15 @@ export default function DashboardPage() {
         <div className="flex flex-col items-center gap-4">
           <TrendingUp className="h-16 w-16 text-muted-foreground" />
           <h3 className="text-2xl font-bold tracking-tight">
-            Welcome to Life Insights!
+            Bienvenue sur Perspectives de Vie !
           </h3>
           <p className="text-sm text-muted-foreground max-w-md">
-            Start by logging your first metric to see your progress and gain insights.
-            You can track things like exercise, sleep, mood, and more.
+            Commencez par enregistrer votre première métrique pour voir vos progrès et obtenir des informations.
+            Vous pouvez suivre des choses comme l'exercice, le sommeil, l'humeur, et plus encore.
           </p>
           <Link href="/log-data" passHref>
             <Button className="mt-4">
-              <PlusCircle className="mr-2 h-4 w-4" /> Log Your First Metric
+              <PlusCircle className="mr-2 h-4 w-4" /> Enregistrer votre Première Métrique
             </Button>
           </Link>
         </div>
@@ -121,16 +94,15 @@ export default function DashboardPage() {
     );
   }
 
-
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-2xl font-bold">Metrics Overview</CardTitle>
-          <div className="flex items-center gap-4">
+        <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0 pb-2">
+          <CardTitle className="text-2xl font-bold">Aperçu des Métriques</CardTitle>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 md:gap-4 w-full sm:w-auto">
             <Select value={selectedMetricId} onValueChange={setSelectedMetricId}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select Metric" />
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue placeholder="Sélectionner une métrique" />
               </SelectTrigger>
               <SelectContent>
                 {allMetricDefinitions.map(metric => (
@@ -140,7 +112,7 @@ export default function DashboardPage() {
                 ))}
               </SelectContent>
             </Select>
-            <DateRangePickerPlaceholder date={dateRange} onDateChange={setDateRange} />
+            <DateRangePicker date={dateRange} onDateChange={setDateRange} />
           </div>
         </CardHeader>
         <CardContent>
@@ -166,9 +138,8 @@ export default function DashboardPage() {
                     <ChartTooltipContent
                       indicator="line"
                       labelFormatter={(value, payload) => {
-                        if (payload && payload.length > 0) {
-                           // Assuming payload[0].payload.fullDate is 'YYYY-MM-DD'
-                          return format(parseISO(payload[0].payload.fullDate), "EEE, MMM d, yyyy");
+                        if (payload && payload.length > 0 && payload[0].payload.fullDate) {
+                          return format(parseISO(payload[0].payload.fullDate), "EEE, MMM d, yyyy", { locale: fr });
                         }
                         return value;
                       }}
@@ -195,15 +166,15 @@ export default function DashboardPage() {
               </LineChart>
             </ChartContainer>
           ) : (
-            <div className="flex flex-col items-center justify-center h-[400px] text-center">
-              <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-lg font-semibold">No data available</p>
+            <div className="flex flex-col items-center justify-center h-[400px] text-center p-4">
+              <BarChartIcon className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-lg font-semibold">Aucune donnée disponible</p>
               <p className="text-muted-foreground">
-                {metricEntries.length === 0 ? "Log some data to see charts." : `No data for ${selectedMetricDef?.name || 'selected metric'} in this period.`}
+                {metricEntries.length === 0 ? "Enregistrez des données pour voir les graphiques." : `Aucune donnée pour ${selectedMetricDef?.name || 'la métrique sélectionnée'} dans cette période.`}
               </p>
               {metricEntries.length === 0 && (
                  <Link href="/log-data" passHref>
-                    <Button variant="outline" className="mt-4">Log Data</Button>
+                    <Button variant="outline" className="mt-4">Enregistrer des Données</Button>
                  </Link>
               )}
             </div>
@@ -211,12 +182,11 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Placeholder for more charts or summary cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Summary of your latest entries.</CardDescription>
+            <CardTitle>Activité Récente</CardTitle>
+            <CardDescription>Résumé de vos dernières entrées.</CardDescription>
           </CardHeader>
           <CardContent>
             {metricEntries.slice(0, 5).map(entry => {
@@ -226,34 +196,34 @@ export default function DashboardPage() {
                   <div>
                     <span className="font-medium">{def?.name || entry.metricId}</span>: <span className="text-primary">{entry.value} {def?.unit}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{format(parseISO(entry.date), 'MMM dd')}</span>
+                  <span className="text-xs text-muted-foreground">{format(parseISO(entry.date), 'MMM dd', { locale: fr })}</span>
                 </div>
               );
             })}
-            {metricEntries.length === 0 && <p className="text-muted-foreground">No recent activity.</p>}
+            {metricEntries.length === 0 && <p className="text-muted-foreground">Aucune activité récente.</p>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Active Goals</CardTitle>
-             <CardDescription>Your current personal goals.</CardDescription>
+            <CardTitle>Objectifs Actifs</CardTitle>
+             <CardDescription>Vos objectifs personnels actuels.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Goal tracking coming soon.</p>
+            <p className="text-muted-foreground">Suivi des objectifs disponible.</p>
              <Link href="/goals" passHref>
-                <Button variant="outline" className="mt-2 w-full">View Goals</Button>
+                <Button variant="outline" className="mt-2 w-full">Voir les Objectifs</Button>
              </Link>
           </CardContent>
         </Card>
          <Card>
           <CardHeader>
-            <CardTitle>AI Trends</CardTitle>
-             <CardDescription>Discover patterns in your data.</CardDescription>
+            <CardTitle>Tendances IA</CardTitle>
+             <CardDescription>Découvrez des modèles dans vos données.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">AI-powered trend analysis coming soon.</p>
+            <p className="text-muted-foreground">Analyse des tendances par IA disponible.</p>
              <Link href="/trends" passHref>
-                <Button variant="outline" className="mt-2 w-full">Analyze Trends</Button>
+                <Button variant="outline" className="mt-2 w-full">Analyser les Tendances</Button>
              </Link>
           </CardContent>
         </Card>
