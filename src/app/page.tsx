@@ -14,7 +14,7 @@ import { DateRangePicker } from '@/components/ui/date-range-picker'; // Assuming
 import type { DateRange } from 'react-day-picker';
 import { subDays, format, parseISO, isValid, compareAsc } from 'date-fns';
 import Link from 'next/link';
-import { TrendingUp, PlusCircle } from 'lucide-react';
+import { TrendingUp, PlusCircle, BarChart3 } from 'lucide-react';
 
 // Placeholder for DateRangePicker until created
 const DateRangePickerPlaceholder = ({ date, onDateChange }: { date?: { from?: Date, to?: Date }, onDateChange: (range: DateRange | undefined) => void }) => {

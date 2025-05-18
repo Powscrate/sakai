@@ -1,6 +1,6 @@
 // src/config/metrics.ts
 import type { MetricDefinition } from '@/types';
-import { Activity, BedDouble, Droplets, SmileHeart } from 'lucide-react';
+import { Activity, BedDouble, Droplets, FileHeart } from 'lucide-react';
 
 export const PREDEFINED_METRICS: MetricDefinition[] = [
   { 
@@ -28,7 +28,7 @@ export const PREDEFINED_METRICS: MetricDefinition[] = [
     id: 'mood', 
     name: 'Mood', 
     unit: '1-5 scale', 
-    icon: SmileHeart, 
+    icon: FileHeart, 
     color: 'hsl(var(--chart-3))',
     placeholder: '1 (low) to 5 (high)',
     min: 1,
@@ -50,3 +50,4 @@ export const PREDEFINED_METRICS: MetricDefinition[] = [
 export const findMetricDefinition = (metricId: MetricId, customMetrics: MetricDefinition[] = []): MetricDefinition | undefined => {
   return PREDEFINED_METRICS.find(m => m.id === metricId) || customMetrics.find(m => m.id === metricId);
 };
+
