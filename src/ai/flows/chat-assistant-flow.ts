@@ -47,7 +47,7 @@ export async function streamChatAssistant(
   }));
 
   const {stream, response} = ai.generateStream({
-    prompt: { messages: messagesForApi },
+    messages: messagesForApi,
     // model: 'googleai/gemini-1.5-flash-latest', // Using the pre-configured model in genkit.ts is preferred. if genkit.ts model is gemini-2.0-flash, it will be used.
     config: {
       temperature: 0.7,
