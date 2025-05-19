@@ -52,8 +52,8 @@ export async function streamChatAssistant(
     }));
 
   const {stream, response} = ai.generateStream({
-    model: 'googleai/gemini-pro',
-    systemInstruction: systemInstructionText, // Pass as a simple string
+    model: 'googleai/gemini-1.0-pro', // Changed from gemini-pro
+    systemInstruction: systemInstructionText,
     messages: messagesForApi,
     config: {
       temperature: 0.7,
@@ -76,7 +76,6 @@ export async function streamChatAssistant(
         },
       ]
     },
-    // No streamingCallback option here; we will iterate over the stream manually
   });
 
   // Iterate over the stream from Genkit and adapt chunks for the UI callback
