@@ -11,6 +11,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+// Input schema simplified: only prompt is needed from the client now.
 const GenerateImageInputSchema = z.object({
   prompt: z.string().describe("L'invite textuelle pour la génération de l'image."),
 });
@@ -34,30 +35,44 @@ const generateImageFlow = ai.defineFlow(
   },
   async (input) => {
     try {
+      // Style and aspect ratio are no longer passed directly from UI in this simplified version.
+      // The core prompt itself will be used.
+      // Advanced prompt engineering could be done here if needed, or inferred by the model.
+      const imageGenPrompt = input.prompt;
+
       const {media} = await ai.generate({
-        model: 'googleai/gemini-2.0-flash-exp', // Modèle spécifique pour la génération d'images
-        prompt: input.prompt,
+        model: 'googleai/gemini-2.0-flash-exp',
+        prompt: imageGenPrompt,
         config: {
-          responseModalities: ['IMAGE', 'TEXT'], // Doit inclure TEXT même si on attend une image
+          responseModalities: ['IMAGE', 'TEXT'],
           safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
           ],
-          // Vous pouvez ajouter d'autres configurations ici comme le nombre d'images, la taille, etc.
-          // Par exemple: generation_config: { candidate_count: 1 }
         },
       });
 
       if (media?.url) {
         return { imageUrl: media.url };
       } else {
-        return { error: "Aucune image n'a été générée ou l'URL est manquante." };
+        // Try to get more specific error if available (e.g., from text part of response)
+        // const textResponse = await ai.generate({ model: 'googleai/gemini-1.5-flash-latest', prompt: `Explique pourquoi la génération d'image pour "${imageGenPrompt}" pourrait avoir échoué sans retourner d'image.` });
+        // const errorReason = textResponse.text ? ` Raison possible: ${textResponse.text}` : "";
+        return { error: "Aucune image n'a été générée ou l'URL est manquante." /*+ errorReason*/ };
       }
     } catch (error: any) {
       console.error("Erreur lors de la génération de l'image:", error);
+       if (error.message && error.message.includes('blocked by safety settings')) {
+        return { error: 'La génération d\'image a été bloquée par les filtres de sécurité. Veuillez ajuster votre invite.'}
+      }
+      if (error.message && error.message.includes('upstream max user-project-qpm')) {
+        return { error: 'Limite de quota atteinte pour la génération d\'images. Veuillez réessayer plus tard.'}
+      }
       return { error: error.message || "Une erreur est survenue lors de la génération de l'image." };
     }
   }
 );
+
+    
