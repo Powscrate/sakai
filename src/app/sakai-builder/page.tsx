@@ -1,6 +1,6 @@
 
 "use client";
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import type { SandpackFiles } from '@codesandbox/sandpack-react';
 import { PromptForm } from '@/components/builder/prompt-form';
 import { CodePreview } from '@/components/builder/code-preview';
@@ -11,7 +11,11 @@ import Link from 'next/link';
 import { SakaiLogo } from '@/components/icons/logo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-const defaultProjectName = "sakai-hello-app";
+const defaultProjectNamePrefix = "sakai-hello-app";
+
+const getSafeProjectName = (baseName: string) => {
+  return `${baseName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-${Date.now().toString(36)}`;
+};
 
 // Robust function to ensure all essential files for a Vite + React TS + Tailwind project are present and correct
 const ensureEssentialFiles = (aiFiles: Record<string, string> | null | undefined): SandpackFiles => {
@@ -20,22 +24,31 @@ const ensureEssentialFiles = (aiFiles: Record<string, string> | null | undefined
   // Convert AI files to SandpackFiles format if they exist, prioritizing AI's version
   if (aiFiles) {
     for (const path in aiFiles) {
-      const sandpackPath = path.startsWith('/') ? path : `/${path}`;
-      files[sandpackPath] = { code: aiFiles[path] };
+      // Ensure paths start with / and are not empty
+      if (path && typeof path === 'string' && path.trim() !== "") {
+        const sandpackPath = path.startsWith('/') ? path : `/${path}`;
+        files[sandpackPath] = { code: aiFiles[path] || `// AI provided empty content for ${sandpackPath}` };
+      }
     }
   }
 
   // 1. package.json
   let pkgJson: any = {};
-  if (files['/package.json']?.code) {
+  let aiProvidedPkgJsonValid = false;
+  if (files['/package.json']?.code && files['/package.json'].code.trim() !== "") {
     try {
       pkgJson = JSON.parse(files['/package.json'].code);
+      aiProvidedPkgJsonValid = true;
     } catch (e) {
-      console.warn("AI-provided package.json is invalid. Using defaults and attempting to merge.", e);
+      console.warn("AI-provided package.json is invalid or empty. Using defaults and attempting to merge.", e);
       pkgJson = {}; // Start fresh if AI's is broken
     }
   }
-  pkgJson.name = pkgJson.name || `${defaultProjectName}-${Date.now().toString(36)}`;
+
+  pkgJson.name = pkgJson.name || getSafeProjectName(defaultProjectNamePrefix);
+  if (typeof pkgJson.name !== 'string' || !/^[a-z0-9_.-]+$/.test(pkgJson.name)) {
+    pkgJson.name = getSafeProjectName(defaultProjectNamePrefix); // Ensure valid name
+  }
   pkgJson.private = pkgJson.private !== undefined ? pkgJson.private : true;
   pkgJson.type = pkgJson.type || "module";
   pkgJson.scripts = { dev: "vite", build: "vite build", ...pkgJson.scripts };
@@ -45,7 +58,7 @@ const ensureEssentialFiles = (aiFiles: Record<string, string> | null | undefined
     "react-dom": "^18.2.0",
     "lucide-react": "^0.475.0", // Ensure lucide-react is present
   };
-  pkgJson.dependencies = { ...defaultDependencies, ...pkgJson.dependencies };
+  pkgJson.dependencies = { ...defaultDependencies, ...(pkgJson.dependencies || {}) };
 
   const defaultDevDependencies = {
     "@types/react": "^18.2.0",
@@ -57,12 +70,17 @@ const ensureEssentialFiles = (aiFiles: Record<string, string> | null | undefined
     "postcss": "^8.4.27",
     "autoprefixer": "^10.4.14",
   };
-  pkgJson.devDependencies = { ...defaultDevDependencies, ...pkgJson.devDependencies };
+  // Ensure vite is a devDependency
+  if (pkgJson.dependencies?.vite && !pkgJson.devDependencies?.vite) {
+    pkgJson.devDependencies = { ...pkgJson.devDependencies, vite: pkgJson.dependencies.vite };
+    delete pkgJson.dependencies.vite;
+  }
+  pkgJson.devDependencies = { ...defaultDevDependencies, ...(pkgJson.devDependencies || {}) };
   files['/package.json'] = { code: JSON.stringify(pkgJson, null, 2) };
 
 
   // 2. vite.config.ts
-  if (!files['/vite.config.ts']?.code) {
+  if (!files['/vite.config.ts']?.code || files['/vite.config.ts'].code.trim() === "") {
     files['/vite.config.ts'] = {
       code: `
 import { defineConfig } from 'vite'
@@ -77,7 +95,7 @@ export default defineConfig({
   }
 
   // 3. tailwind.config.js
-  if (!files['/tailwind.config.js']?.code) {
+  if (!files['/tailwind.config.js']?.code || files['/tailwind.config.js'].code.trim() === "") {
     files['/tailwind.config.js'] = {
       code: `
 /** @type {import('tailwindcss').Config} */
@@ -96,7 +114,7 @@ export default {
   }
   
   // 4. postcss.config.js
-  if (!files['/postcss.config.js']?.code) {
+  if (!files['/postcss.config.js']?.code || files['/postcss.config.js'].code.trim() === "") {
     files['/postcss.config.js'] = {
       code: `
 export default {
@@ -110,14 +128,13 @@ export default {
   }
 
   // 5. index.html (root)
-  if (!files['/index.html']?.code) {
+  if (!files['/index.html']?.code || files['/index.html'].code.trim() === "") {
     files['/index.html'] = {
       code: `
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${pkgJson.name || 'Sakai Builder App'}</title>
   </head>
@@ -131,7 +148,7 @@ export default {
   }
 
   // 6. src/main.tsx
-  if (!files['/src/main.tsx']?.code) {
+  if (!files['/src/main.tsx']?.code || files['/src/main.tsx'].code.trim() === "") {
     files['/src/main.tsx'] = {
       code: `
 import React from 'react'
@@ -149,7 +166,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   }
 
   // 7. src/index.css
-  if (!files['/src/index.css']?.code) {
+  if (!files['/src/index.css']?.code || files['/src/index.css'].code.trim() === "") {
     files['/src/index.css'] = {
       code: `
 @tailwind base;
@@ -160,19 +177,24 @@ body {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: light dark; /* Basic dark mode support for Vite default */
-  background-color: #ffffff; /* Default light background */
+  /* Basic light/dark mode support for Vite default */
+  color-scheme: light dark; 
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424; /* Default dark background for Vite apps */
+
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
   margin: 0;
   padding: 1rem;
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   body {
-    background-color: #242424; /* Default dark background for Vite apps */
+    color: #213547;
+    background-color: #ffffff;
   }
 }
       `,
@@ -187,39 +209,44 @@ import { Smile } from 'lucide-react';
 
 function App() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800 text-slate-800 dark:text-slate-100 p-8 text-center">
+    <div className="flex flex-col items-center justify-center min-h-screen p-8 text-center">
       <Smile className="w-24 h-24 text-teal-500 dark:text-teal-400 mb-8 animate-bounce" data-ai-hint="smile face" />
-      <h1 className="text-5xl md:text-6xl font-bold mb-6">
+      <h1 className="text-5xl md:text-6xl font-bold mb-6 text-slate-800 dark:text-slate-100">
         Hello <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-cyan-600 dark:from-teal-400 dark:to-cyan-500">Sakai</span>!
       </h1>
       <p className="text-xl md:text-2xl text-slate-600 dark:text-slate-300 max-w-lg">
-        This is your default generated application. Describe the project you want to build in the panel on the left!
+        This is your default generated application. Describe the project you want to build!
       </p>
     </div>
   )
 }
 export default App
         `,
-        active: true, // Make it active by default
       };
   }
 
-  // Ensure an active file is set if not already done by App.tsx
-  const hasActiveFile = Object.values(files).some(f => f.active);
-  if (!hasActiveFile) {
-    const potentialActiveFiles = ['/src/App.tsx', '/src/main.tsx', '/index.html'];
-    for (const paf of potentialActiveFiles) {
-        if (files[paf] && !files[paf].hidden) {
-            files[paf].active = true;
-            break;
-        }
+  // Ensure an active file is set
+  const potentialActiveFiles = ['/src/App.tsx', '/src/main.tsx', '/index.html'];
+  let activeFileSet = false;
+  for (const paf of potentialActiveFiles) {
+      if (files[paf] && !files[paf].hidden) {
+          files[paf].active = true;
+          activeFileSet = true;
+          break;
+      }
+  }
+  // Fallback if no primary active file is found
+  if (!activeFileSet) {
+    const firstEditableFile = Object.keys(files).find(key => !files[key].hidden && files[key].code?.trim() !== "");
+    if (firstEditableFile && files[firstEditableFile]) {
+        files[firstEditableFile].active = true;
     }
   }
   
-  // Make sure no file has empty code, replace with a comment if so
+  // Make sure no file has empty code, replace with a comment if so, except package.json
   for (const path in files) {
-    if (files[path].code.trim() === "" && path !== "/package.json") { // Allow empty package.json initially if AI fails
-        files[path].code = `// ${path} - AI generated empty or invalid file, replaced by Sakai Builder.`;
+    if (files[path].code.trim() === "" && path !== "/package.json") { 
+        files[path].code = `// ${path} - AI generated empty or invalid file, Sakai Builder added placeholder.`;
     }
   }
 
@@ -228,45 +255,46 @@ export default App
 
 
 export default function SakaiBuilderPage() {
-  const [prompt, setPrompt] = useState<string>(""); // Initial prompt is empty
+  const [prompt, setPrompt] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Memoize initial files to show the default "Hello Sakai" project
+  
+  // Initialize with a default "Hello Sakai" project
   const initialSandpackFiles = useMemo(() => ensureEssentialFiles(null), []);
-  const [generatedFiles, setGeneratedFiles] = useState<SandpackFiles | null>(initialSandpackFiles);
+  const [sandpackFiles, setSandpackFiles] = useState<SandpackFiles | null>(initialSandpackFiles);
 
 
-  const handleGenerateProject = async (currentPrompt: string) => {
+  const handleGenerateProject = useCallback(async (currentPrompt: string) => {
     if (!currentPrompt.trim()) {
         setError("Veuillez entrer une description pour votre projet.");
         return;
     }
     setIsLoading(true);
     setError(null);
-    // setGeneratedFiles(null); // Optionally clear previous preview or show loading state in preview
+    // Set to null to show loader in CodePreview or clear previous preview
+    setSandpackFiles(null); 
 
     try {
       const result: GenerateProjectOutput = await generateProjectFiles({ userInputPrompt: currentPrompt });
       if (result.error) {
         setError(`Erreur de génération IA : ${result.error}. Veuillez vérifier la console du serveur pour plus de détails. Affichage du projet par défaut.`);
         console.error("AI Generation Error from flow:", result.error);
-        setGeneratedFiles(ensureEssentialFiles(null)); // Revert to default on error
-      } else if (result.files) {
+        setSandpackFiles(ensureEssentialFiles(null)); // Revert to default on error
+      } else if (result.files && Object.keys(result.files).length > 0) {
         const sandpackReadyFiles = ensureEssentialFiles(result.files);
-        setGeneratedFiles(sandpackReadyFiles);
+        setSandpackFiles(sandpackReadyFiles);
       } else {
-        setError("L'IA n'a retourné aucun fichier. Le projet par défaut est affiché. Veuillez réessayer ou modifier votre prompt.");
-        setGeneratedFiles(ensureEssentialFiles(null)); // Revert to default
+        setError("L'IA n'a retourné aucun fichier ou un objet de fichiers vide. Le projet par défaut est affiché. Veuillez réessayer ou modifier votre prompt.");
+        setSandpackFiles(ensureEssentialFiles(null)); // Revert to default
       }
     } catch (e: any) {
       console.error("Error calling generateProjectFiles in Page:", e);
       setError(e.message || "Une erreur inattendue est survenue lors de la génération du projet. Affichage du projet par défaut.");
-      setGeneratedFiles(ensureEssentialFiles(null)); // Revert to default
+      setSandpackFiles(ensureEssentialFiles(null)); // Revert to default
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
@@ -319,7 +347,7 @@ export default function SakaiBuilderPage() {
 
         {/* Right Pane: Code Preview (Sandpack - Preview Only) */}
         <div className="bg-background flex flex-col overflow-hidden">
-          <CodePreview files={generatedFiles} />
+          <CodePreview files={sandpackFiles} isLoading={isLoading && !sandpackFiles} />
         </div>
       </div>
     </div>

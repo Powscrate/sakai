@@ -43,10 +43,12 @@ const projectGenerationPrompt = ai.definePrompt({
         "Specifically, newlines (\\n) MUST be represented as \\\\n, backslashes (\\) as \\\\\\\\, and double quotes (\") within string literals as \\\\\". " + // Double escaped for the prompt string literal itself
         "Ensure all necessary configuration files are included for a runnable Vite + React TS + Tailwind CSS + Lucide React project. " +
         "The project MUST include: " +
-        "1. '/package.json': with a unique 'name' property (e.g., 'sakai-generated-app'), " +
-        "   'dependencies': { 'react': '^18.2.0', 'react-dom': '^18.2.0', 'lucide-react': '^0.400.0' (use latest available minor version, e.g. 0.4xx.0) }, " +
-        "   'devDependencies': { '@vitejs/plugin-react': '^4.0.3', 'vite': '^4.4.5', 'typescript': '^5.0.2', 'tailwindcss': '^3.3.3', 'postcss': '^8.4.27', 'autoprefixer': '^10.4.14' }, " +
-        "   'type': 'module', and 'scripts': { 'dev': 'vite', 'build': 'vite build' }. Make sure 'vite' is a devDependency. " +
+        "1. '/package.json': with a unique 'name' property (e.g., 'sakai-generated-app' or based on prompt), " +
+        "   'type': 'module', " +
+        "   'scripts': { 'dev': 'vite', 'build': 'vite build' }, " +
+        "   'dependencies': { 'react': '^18.2.0', 'react-dom': '^18.2.0', 'lucide-react': '^0.475.0' (use a recent, valid version like 0.4xx.0) }, " +
+        "   'devDependencies': { '@types/react': '^18.2.0', '@types/react-dom': '^18.2.0', '@vitejs/plugin-react': '^4.0.3', 'vite': '^4.4.5', 'typescript': '^5.0.2', 'tailwindcss': '^3.3.3', 'postcss': '^8.4.27', 'autoprefixer': '^10.4.14' }. " +
+        "   CRITICAL: 'vite' MUST be listed under 'devDependencies'. " +
         "2. '/vite.config.ts': configured for React and TypeScript (e.g., import react from '@vitejs/plugin-react'; import { defineConfig } from 'vite'; export default defineConfig({ plugins: [react()] });). " +
         "3. '/tailwind.config.js': with content array including './index.html' and './src/**/*.{js,ts,jsx,tsx}'. " +
         "   (e.g., export default { content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'], theme: { extend: {} }, plugins: [] };). " +
@@ -67,8 +69,8 @@ The output MUST be a single, valid JSON string. This JSON string should represen
 
 CRITICAL FOR VALID JSON: Within the file content strings, all special characters MUST be escaped. Newlines should be \\\\n, double quotes should be \\\\", and backslashes should be \\\\\\\\.
 
-Ensure the generated project is runnable. Include all specified files:
-1.  '/package.json' (unique "name", specified dependencies including 'lucide-react' at a recent version like ^0.4xx.0, devDependencies including 'vite', type: 'module', and scripts 'dev', 'build').
+Ensure the generated project is runnable with Vite. Include all specified files:
+1.  '/package.json' (unique "name", type: 'module', scripts: { "dev": "vite", "build": "vite build" }, specified dependencies including 'lucide-react' at a recent version like ^0.4xx.0, devDependencies including 'vite', '@vitejs/plugin-react', 'tailwindcss', 'postcss', 'autoprefixer', 'typescript'). 'vite' MUST be a devDependency.
 2.  '/vite.config.ts' (React plugin).
 3.  '/tailwind.config.js' (content array correctly configured).
 4.  '/postcss.config.js' (tailwindcss, autoprefixer).
@@ -136,5 +138,7 @@ const generateProjectFlow = ai.defineFlow(
     }
   }
 );
+
+    
 
     
