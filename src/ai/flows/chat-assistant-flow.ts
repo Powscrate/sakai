@@ -25,15 +25,16 @@ const ChatAssistantInputSchema = z.object({
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
+// This is the simplified chunk structure the UI will receive
 export type ChatStreamChunk = {
   text?: string;
-  // Other fields from GenerateStreamResponseData could be added if needed by the client
 };
 
 
 export async function streamChatAssistant(
   input: ChatAssistantInput,
-  onChunk: (chunk: ChatStreamChunk) => void | Promise<void>
+  // This uiCallback is provided by the React component and expects simple text chunks
+  uiCallback: (chunk: ChatStreamChunk) => void | Promise<void>
 ): Promise<GenerateResult | undefined> {
 
   const systemInstructionText = `Vous êtes un assistant IA convivial et serviable pour l'application "Perspectives de Vie".
@@ -41,10 +42,8 @@ export async function streamChatAssistant(
     Répondez toujours en FRANÇAIS.
     Soyez concis mais informatif.
     Si vous ne connaissez pas la réponse ou si la question sort du cadre de l'application (suivi de métriques de vie, objectifs, tendances, bien-être général), dites-le poliment.
-    La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}.`;
+    La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
 
-  // Filter out any 'system' messages from history and ensure roles are correctly typed for the API.
-  // The client should only send 'user' and 'model' roles in history.
   const messagesForApi: MessageData[] = input.history
     .filter(msg => msg.role === 'user' || msg.role === 'model') 
     .map(msg => ({
@@ -54,11 +53,8 @@ export async function streamChatAssistant(
 
   const {stream, response} = ai.generateStream({
     model: 'googleai/gemini-pro',
-    systemInstruction: { // Use the dedicated systemInstruction field
-      parts: [{ text: systemInstructionText }],
-      // role: 'system' // This 'role' for systemInstruction is often implicit if parts are provided.
-    },
-    messages: messagesForApi, // Now only contains user/model messages from history
+    systemInstruction: systemInstructionText, // Pass as a simple string
+    messages: messagesForApi,
     config: {
       temperature: 0.7,
        safetySettings: [
@@ -80,14 +76,22 @@ export async function streamChatAssistant(
         },
       ]
     },
-    // The type for onChunk here should match what generateStream's streamingCallback expects.
-    // GenerateStreamResponseData is the more accurate type for the chunk.
-    streamingCallback: onChunk as (chunk: GenerateStreamResponseData) => void | Promise<void>, 
+    // No streamingCallback option here; we will iterate over the stream manually
   });
 
-  for await (const _ of stream) {
-    // Stream is consumed, chunks are sent via onChunk
+  // Iterate over the stream from Genkit and adapt chunks for the UI callback
+  for await (const genkitChunk of stream) { // genkitChunk is GenerateStreamResponseData
+    if (genkitChunk.content) {
+      for (const part of genkitChunk.content) {
+        if (part.text) {
+          // Call the UI's callback with the simplified chunk structure
+          await uiCallback({ text: part.text });
+        }
+      }
+    } else if (genkitChunk.text) { // Some simpler chunks might have text directly
+        await uiCallback({ text: genkitChunk.text });
+    }
   }
+  
   return await response; 
 }
-
