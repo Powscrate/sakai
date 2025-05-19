@@ -1,5 +1,6 @@
-# Firebase Studio
+# Assistant IA Firebase Studio
 
-This is a NextJS starter in Firebase Studio.
+Ceci est une application NextJS construite avec Firebase Studio, transformée en un assistant IA conversationnel.
 
-To get started, take a look at src/app/page.tsx.
+L'application principale se trouve dans `src/app/page.tsx`, qui affiche l'interface de chat.
+L'assistant utilise Genkit et Gemini pour fournir des réponses intelligentes.
