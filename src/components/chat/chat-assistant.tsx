@@ -6,17 +6,22 @@ import { useState, useRef, useEffect, FormEvent } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Loader2, User, Bot } from 'lucide-react';
+import { Send, Loader2, User, Bot, Settings } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk } from '@/ai/flows/chat-assistant-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { LifeInsightsLogo } from '@/components/icons/logo';
+import { KnowledgeDialog } from './knowledge-dialog';
+import useLocalStorage from '@/hooks/use-local-storage';
 
 export function ChatAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [userKnowledge, setUserKnowledge] = useLocalStorage<string>('chatUserKnowledge', '');
+  const [isKnowledgeDialogOpen, setIsKnowledgeDialogOpen] = useState(false);
+  
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -33,10 +38,18 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current) {
+    if (inputRef.current && !isKnowledgeDialogOpen) { // Avoid refocusing if dialog is open
       inputRef.current.focus();
     }
-  }, []); // Focus on mount
+  }, [isLoading, isKnowledgeDialogOpen]); // Focus on load changes or when dialog closes
+
+   useEffect(() => {
+    // Initial focus when component mounts and dialog is not open
+    if (inputRef.current && !isKnowledgeDialogOpen) {
+      inputRef.current.focus();
+    }
+  }, [isKnowledgeDialogOpen]);
+
 
   const handleSendMessage = async (e?: FormEvent<HTMLFormElement>) => {
     if (e) e.preventDefault();
@@ -44,7 +57,6 @@ export function ChatAssistant() {
 
     const newUserMessage: ChatMessage = { role: 'user', parts: input.trim() };
     
-    // Add user message and a temporary empty model message for the loading state
     setMessages(prev => [...prev, newUserMessage, { role: 'model', parts: '' }]);
     const currentHistory = [...messages, newUserMessage]; 
 
@@ -52,12 +64,12 @@ export function ChatAssistant() {
     setIsLoading(true);
 
     try {
-      const readableStream = await streamChatAssistant({ history: currentHistory });
+      const readableStream = await streamChatAssistant({ history: currentHistory, knowledge: userKnowledge });
       const reader = readableStream.getReader();
       
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        const { done, value } = await reader.read(); // value is ChatStreamChunk
+        const { done, value } = await reader.read(); 
         
         if (done) {
           break;
@@ -72,7 +84,6 @@ export function ChatAssistant() {
         if (chatChunk.text) {
           setMessages(prev => {
             const lastMessageIndex = prev.length - 1;
-            // Ensure we are updating the last message and it's a model message
             if (lastMessageIndex >= 0 && prev[lastMessageIndex].role === 'model') {
               const updatedMessages = [...prev];
               updatedMessages[lastMessageIndex] = {
@@ -81,7 +92,6 @@ export function ChatAssistant() {
               };
               return updatedMessages;
             }
-            // This case should ideally not be hit if an empty model message was added before streaming
             return [...prev, { role: 'model', parts: chatChunk.text }];
           });
         }
@@ -96,19 +106,25 @@ export function ChatAssistant() {
       });
       setMessages(prev => {
          const lastMessageIndex = prev.length - 1;
-         // If the last message is the empty model message, update it with the error
          if (lastMessageIndex >=0 && prev[lastMessageIndex].role === 'model' && prev[lastMessageIndex].parts === '') {
             const updatedMessages = [...prev];
             updatedMessages[lastMessageIndex] = { ...updatedMessages[lastMessageIndex], parts: errorMessage };
             return updatedMessages;
          }
-         // Otherwise, add a new model message with the error
         return [...prev, { role: 'model', parts: errorMessage }];
       });
     } finally {
       setIsLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
+      // setTimeout(() => inputRef.current?.focus(), 0); // Refocus handled by useEffect
     }
+  };
+
+  const handleSaveKnowledge = (newKnowledge: string) => {
+    setUserKnowledge(newKnowledge);
+    toast({
+      title: "Connaissances sauvegardées",
+      description: "L'assistant utilisera ces informations pour ses prochaines réponses.",
+    });
   };
 
   return (
@@ -118,9 +134,12 @@ export function ChatAssistant() {
           <div className="flex items-center gap-3">
             <LifeInsightsLogo className="h-8 w-8 text-primary" />
             <CardTitle className="text-xl font-semibold">
-              Assistant IA
+              Assistant IA Personnalisé
             </CardTitle>
           </div>
+          <Button variant="ghost" size="icon" onClick={() => setIsKnowledgeDialogOpen(true)} aria-label="Configurer les connaissances">
+            <Settings className="h-5 w-5 text-primary" />
+          </Button>
         </CardHeader>
         <CardContent className="flex-1 p-0 overflow-hidden">
           <ScrollArea ref={scrollAreaRef} className="h-full">
@@ -129,29 +148,28 @@ export function ChatAssistant() {
                 <div
                   key={index}
                   className={cn(
-                    "flex items-start gap-3 p-3.5 rounded-xl max-w-[85%] break-words shadow-md", // Slightly increased padding and rounding
+                    "flex items-start gap-3 p-3.5 rounded-xl max-w-[85%] break-words shadow-md",
                     msg.role === 'user' 
                       ? 'ml-auto bg-primary text-primary-foreground' 
-                      : 'mr-auto bg-card border text-card-foreground' // Bot uses card background with a border
+                      : 'mr-auto bg-card border text-card-foreground'
                   )}
                 >
-                  {msg.role === 'model' && <Bot className="h-7 w-7 shrink-0 mt-0.5 text-primary" />} {/* Slightly larger icon */}
+                  {msg.role === 'model' && <Bot className="h-7 w-7 shrink-0 mt-0.5 text-primary" />}
                   
-                  {/* Message content or loader */}
                   {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   ) : (
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.parts}</p> // Improved line height
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.parts}</p>
                   )}
 
-                  {msg.role === 'user' && <User className="h-7 w-7 shrink-0 mt-0.5" />} {/* Slightly larger icon */}
+                  {msg.role === 'user' && <User className="h-7 w-7 shrink-0 mt-0.5" />}
                 </div>
               ))}
               {messages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-                  <Bot size={56} className="mb-6 text-primary" /> {/* Larger icon and margin */}
+                  <Bot size={56} className="mb-6 text-primary" />
                   <p className="text-xl font-medium mb-3">Comment puis-je vous aider aujourd'hui ?</p>
-                  <p className="text-base">Posez une question à votre assistant IA.</p>
+                  <p className="text-base">Posez une question à votre assistant IA ou personnalisez ses connaissances via l'icône <Settings className="inline h-4 w-4" /> en haut à droite.</p>
                 </div>
               )}
             </div>
@@ -162,11 +180,11 @@ export function ChatAssistant() {
             <Input
               ref={inputRef}
               type="text"
-              placeholder="Envoyez un message..." // Updated placeholder
+              placeholder="Envoyez un message..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1 py-3 px-4 text-base rounded-lg" // Increased padding, rounded-lg
+              className="flex-1 py-3 px-4 text-base rounded-lg"
             />
             <Button type="submit" size="lg" disabled={isLoading || !input.trim()} aria-label="Envoyer" className="rounded-lg">
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
@@ -174,6 +192,12 @@ export function ChatAssistant() {
           </form>
         </CardFooter>
       </Card>
+      <KnowledgeDialog
+        isOpen={isKnowledgeDialogOpen}
+        onOpenChange={setIsKnowledgeDialogOpen}
+        currentKnowledge={userKnowledge}
+        onSaveKnowledge={handleSaveKnowledge}
+      />
     </div>
   );
 }

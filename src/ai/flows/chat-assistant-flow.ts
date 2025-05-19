@@ -10,7 +10,7 @@
  */
 import {ai} from '@/ai/genkit';
 import {z}from 'genkit';
-import type { MessageData, Part, GenerateStreamResponseData } from 'genkit';
+import type { MessageData, Part } from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -22,6 +22,7 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 const ChatAssistantInputSchema = z.object({
   history: z.array(ChatMessageSchema).describe("L'historique de la conversation, le message le plus récent est le dernier."),
+  knowledge: z.string().optional().describe("Connaissances fournies par l'utilisateur pour guider l'assistant."),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
@@ -36,12 +37,26 @@ export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
 
-  const systemInstructionText = `Vous êtes un assistant IA convivial et serviable pour l'application "Perspectives de Vie".
-    Votre rôle est d'aider les utilisateurs à comprendre leurs données (métriques de santé et bien-être comme l'exercice, le sommeil, l'humeur, l'eau consommée), à fixer des objectifs, à analyser les tendances et à fournir des conseils généraux sur le bien-être.
-    Répondez toujours en FRANÇAIS.
-    Soyez concis mais informatif.
-    Si vous ne connaissez pas la réponse ou si la question sort du cadre de l'application (suivi de métriques de vie, objectifs, tendances, bien-être général), dites-le poliment.
-    La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
+  let systemInstructionText = `Vous êtes un assistant IA convivial et serviable.
+Répondez toujours en FRANÇAIS.
+Soyez concis mais informatif.
+Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale, dites-le poliment.
+La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
+
+  if (input.knowledge && input.knowledge.trim() !== '') {
+    systemInstructionText = `Vous êtes un assistant IA convivial et serviable.
+L'utilisateur a fourni les informations suivantes pour guider vos réponses et définir votre contexte spécifique. Veuillez les prendre en compte prioritairement lorsque cela est pertinent :
+---DEBUT DES CONNAISSANCES UTILISATEUR---
+${input.knowledge}
+---FIN DES CONNAISSANCES UTILISATEUR---
+
+Votre rôle général est d'aider les utilisateurs.
+Répondez toujours en FRANÇAIS.
+Soyez concis mais informatif.
+Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale, dites-le poliment.
+La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
+  }
+
 
   const messagesForApi: MessageData[] = input.history
     .filter(msg => msg.role === 'user' || msg.role === 'model')
@@ -82,7 +97,7 @@ export async function streamChatAssistant(
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
       try {
-        for await (const genkitChunk of genkitStream) { // genkitChunk is GenerateStreamResponseData
+        for await (const genkitChunk of genkitStream) { 
           let currentText = "";
           if (genkitChunk.content) {
             for (const part of genkitChunk.content) {
@@ -90,7 +105,7 @@ export async function streamChatAssistant(
                 currentText += part.text;
               }
             }
-          } else if (genkitChunk.text) {
+          } else if (genkitChunk.text) { // Fallback for simpler text responses if content parts are not used
             currentText += genkitChunk.text;
           }
           
@@ -103,14 +118,12 @@ export async function streamChatAssistant(
         try {
             controller.enqueue({ error: error.message || "Une erreur est survenue lors du traitement du flux." });
         } catch (e) {
-            // If enqueueing the error itself fails (e.g., controller already closed), log it
             console.error("Impossible d'envoyer l'erreur au client:", e);
         }
       } finally {
         try {
             controller.close();
         } catch (e) {
-            // Log if closing controller fails (might happen if already closed due to error)
             console.error("Erreur lors de la fermeture du contrôleur de flux:", e);
         }
       }
