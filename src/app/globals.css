@@ -121,3 +121,15 @@ pre code {
   white-space: pre-wrap; /* Allow wrapping within the code block */
   word-break: break-all; /* Break long words/strings if necessary to prevent overflow */
 }
+
+/* Blinking cursor style */
+.blinking-cursor-span {
+  animation: blink 1s step-end infinite;
+  /* If you want it to be a block character that pushes text, use display: inline-block; 
+     For a simple trailing cursor, 'inline' is fine with a character like '▋' or '|'. */
+}
+
+@keyframes blink {
+  from, to { opacity: 1; }
+  50% { opacity: 0; }
+}

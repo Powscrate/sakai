@@ -41,8 +41,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-// Badge n'est plus utilisé directement, mais peut être gardé pour le futur
-// import { Badge } from "@/components/ui/badge";
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
 import { generateImage } from '@/ai/flows/generate-image-flow';
@@ -99,6 +97,8 @@ export function ChatAssistant() {
   const [tempOverrideSystemPrompt, setTempOverrideSystemPrompt] = useState(devOverrideSystemPrompt);
   const [tempModelTemperature, setTempModelTemperature] = useState(devModelTemperature ?? 0.7);
 
+  const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
+
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -123,7 +123,6 @@ export function ChatAssistant() {
   }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen]); 
 
    useEffect(() => {
-    // Restore focus when dialogs close
     if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen) {
       inputRef.current.focus();
     }
@@ -135,7 +134,7 @@ export function ChatAssistant() {
       const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'text/plain', 'text/markdown'];
       
       Array.from(files).forEach(file => {
-        const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${encodeURIComponent(file.name)}`;
+        const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 11)}-${encodeURIComponent(file.name)}`;
         const isAllowedMimeType = allowedTypes.includes(file.type);
         const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt');
 
@@ -171,7 +170,6 @@ export function ChatAssistant() {
         }
       });
     }
-    // Reset the input value to allow selecting the same file(s) again later
     if (event.target) {
         event.target.value = '';
     }
@@ -184,7 +182,7 @@ export function ChatAssistant() {
   const clearAllUploadedFiles = () => {
     setUploadedFiles([]);
     if (fileInputRef.current) {
-      fileInputRef.current.value = ''; // Also clear the native input
+      fileInputRef.current.value = '';
     }
   };
 
@@ -192,6 +190,7 @@ export function ChatAssistant() {
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
+    setCurrentStreamingMessageId(null); // Not streaming text for image generation
     setMessages(prev => [...prev, { 
       role: 'model', 
       parts: [{type: 'text', text: `Sakai génère une image pour : "${promptText}"...`}], 
@@ -250,13 +249,13 @@ export function ChatAssistant() {
 
     uploadedFiles.forEach(fileWrapper => {
       let mimeType = fileWrapper.file.type;
-      if (!mimeType) { // Fallback for files without explicit mime type (e.g. some .txt or .md)
+      if (!mimeType) { 
         if (fileWrapper.file.name.endsWith('.md')) mimeType = 'text/markdown';
         else if (fileWrapper.file.name.endsWith('.txt')) mimeType = 'text/plain';
-        else mimeType = 'application/octet-stream'; // Generic fallback
+        else mimeType = 'application/octet-stream'; 
       }
       newUserMessageParts.push({
-        type: 'image', // Gemini handles various media under this part type if dataUri and mimeType are provided
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType 
       });
@@ -276,6 +275,7 @@ export function ChatAssistant() {
     
     setIsLoading(true);
     const assistantMessageId = `model-${Date.now()}`;
+    setCurrentStreamingMessageId(assistantMessageId);
     setMessages(prev => [...prev, { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId }]);
     
     const currentHistory = [...messages, newUserMessage].filter(msg => 
@@ -331,6 +331,7 @@ export function ChatAssistant() {
       );
     } finally {
       setIsLoading(false);
+      setCurrentStreamingMessageId(null);
     }
   };
 
@@ -344,8 +345,6 @@ export function ChatAssistant() {
            setInput(action.prompt); 
          }
       } else if (action.prompt.startsWith("/image") && uploadedFiles.length > 0) {
-        // If user uploads an image and clicks "Generate image" quick action, it's confusing.
-        // Prioritize describing the uploaded image.
         setInput("Décris cette image."); 
       }
       else {
@@ -399,37 +398,40 @@ export function ChatAssistant() {
 
   const handleResetDevSettings = () => {
     setTempOverrideSystemPrompt('');
-    setTempModelTemperature(0.7); // Reset to default temperature
-    setDevOverrideSystemPrompt(''); // Clear stored override
-    setDevModelTemperature(undefined); // Clear stored temperature to use default
+    setTempModelTemperature(0.7); 
+    setDevOverrideSystemPrompt(''); 
+    setDevModelTemperature(undefined); 
     toast({
       title: "Paramètres développeur réinitialisés",
       description: "Les paramètres par défaut sont restaurés.",
     });
   };
   
-  useEffect(() => { // Sync local temp state if global dev settings change (e.g. reset from another tab)
+  useEffect(() => { 
     setTempOverrideSystemPrompt(devOverrideSystemPrompt);
     setTempModelTemperature(devModelTemperature ?? 0.7);
   }, [devOverrideSystemPrompt, devModelTemperature]);
 
-  const renderMessagePart = (part: ChatMessagePart, partIndex: number, messageId: string) => {
+  const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
+    const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}`;
+
     if (part.type === 'text') {
       const codeBlockRegex = /```([\s\S]*?)```/g;
       let lastIndex = 0;
       const elements = [];
       let match;
+      const uniqueKeyPrefix = `${message.id}-text-${partIndex}`;
 
       while ((match = codeBlockRegex.exec(part.text)) !== null) {
         if (match.index > lastIndex) {
           elements.push(
-            <span key={`text-${messageId}-${partIndex}-${lastIndex}`}>
+            <span key={`${uniqueKeyPrefix}-span-${lastIndex}`}>
               {part.text.substring(lastIndex, match.index)}
             </span>
           );
         }
         elements.push(
-          <pre key={`code-${messageId}-${partIndex}-${match.index}`}>
+          <pre key={`${uniqueKeyPrefix}-pre-${match.index}`}>
             <code>{match[1].trim()}</code>
           </pre>
         );
@@ -438,35 +440,41 @@ export function ChatAssistant() {
 
       if (lastIndex < part.text.length) {
         elements.push(
-          <span key={`text-${messageId}-${partIndex}-${lastIndex}`}>
+          <span key={`${uniqueKeyPrefix}-span-${lastIndex}`}>
             {part.text.substring(lastIndex)}
           </span>
         );
       }
       
-      if (elements.length > 0) {
-        return <div className="text-sm whitespace-pre-wrap leading-relaxed">{elements.map((el, i) => <Fragment key={i}>{el}</Fragment>)}</div>;
-      }
-      return <p key={`${messageId}-text-${partIndex}`} className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
+      const textContent = elements.length > 0 ? elements.map((el, i) => <Fragment key={i}>{el}</Fragment>) : part.text;
 
+      return (
+        <div key={uniquePartKey} className="text-sm whitespace-pre-wrap leading-relaxed">
+            {textContent}
+            {isLastMessageOfList && message.role === 'model' && isLoading && message.id === currentStreamingMessageId && (
+                <span className="blinking-cursor-span">▋</span>
+            )}
+        </div>
+      );
     }
+
     if (part.type === 'image' && part.imageDataUri) {
       const isImageFile = part.mimeType?.startsWith('image/');
       if (isImageFile) {
         return (
           <Image 
-            key={`${messageId}-img-${partIndex}`}
+            key={uniquePartKey}
             src={part.imageDataUri} 
-            alt={part.mimeType === 'user' ? "Fichier de l'utilisateur" : "Média généré"} // Adjusted alt
+            alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
             width={300} 
             height={300} 
             className="rounded-lg object-contain max-w-full h-auto border border-border/50"
-            data-ai-hint="user uploaded" // Keep general hint, or adjust if context allows
+            data-ai-hint="user uploaded"
           />
         );
       } else { 
         return (
-          <div key={`${messageId}-doc-${partIndex}`} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
+          <div key={uniquePartKey} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
             <FileText className="h-6 w-6 text-primary shrink-0" />
             <span className="text-xs text-muted-foreground truncate">Fichier: {part.mimeType || 'document'}</span>
           </div>
@@ -530,14 +538,20 @@ export function ChatAssistant() {
                   </p>
                 </div>
               )}
-              {messages.map((msg) => {
+              {messages.map((msg, msgIndex) => {
                 const isUser = msg.role === 'user';
-                const isLoadingMessage = isLoading && msg.role === 'model' && msg.id?.startsWith('model-') && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
-                const isImageGenPlaceholder = isLoading && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
+                const isLastMessageOfList = msgIndex === messages.length - 1;
+                
+                // isLoadingMessage for initial "Sakai réfléchit..." for the current text stream
+                const isLoadingMessage = isLoading && msg.role === 'model' && msg.id === currentStreamingMessageId && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
+                
+                // isImageGenPlaceholder for image generation specific loading.
+                // Ensure it doesn't conflict with currentStreamingMessageId if an image is generated via /image command.
+                const isImageGenPlaceholder = isLoading && msg.role === 'model' && (msg.id !== currentStreamingMessageId || !currentStreamingMessageId) && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
                 
                 return (
                   <div
-                    key={msg.id || `msg-${Math.random()}`} 
+                    key={msg.id || `msg-${msgIndex}-${Math.random()}`} 
                     className={cn(
                       "flex items-end gap-3 max-w-[85%] break-words",
                       isUser ? 'ml-auto flex-row-reverse' : 'mr-auto flex-row'
@@ -561,7 +575,7 @@ export function ChatAssistant() {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {msg.parts.map((part, index) => renderMessagePart(part, index, msg.id || `part-${index}`))}
+                          {msg.parts.map((part, index) => renderMessagePart(part, index, msg, isLastMessageOfList))}
                         </div>
                       )}
                     </div>
@@ -602,7 +616,7 @@ export function ChatAssistant() {
               </ScrollArea>
             </div>
           )}
-          {(messages.length === 0 && uploadedFiles.length === 0 && !isLoading) && ( // Added !isLoading here
+          {(messages.length === 0 && uploadedFiles.length === 0 && !isLoading) && (
              <div className="w-full mb-2">
                 <p className="text-xs text-muted-foreground mb-2 text-center font-medium">Suggestions :</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -647,13 +661,12 @@ export function ChatAssistant() {
                 <Mic className="h-5 w-5" />
             </Button>
             <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-11 w-11 rounded-lg shrink-0">
-              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+              {isLoading && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
           </form>
         </CardFooter>
       </Card>
 
-      {/* Memory Dialog */}
       <MemoryDialog
         isOpen={isMemoryDialogOpen}
         onOpenChange={setIsMemoryDialogOpen}
@@ -661,7 +674,6 @@ export function ChatAssistant() {
         onSaveMemory={handleSaveMemory}
       />
 
-      {/* Features Dialog */}
       <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -687,7 +699,6 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* About Dialog */}
       <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -704,7 +715,6 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
       
-      {/* Dev Code Prompt Dialog */}
       <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -729,7 +739,6 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dev Settings Dialog */}
       <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
         <DialogContent className="sm:max-w-[600px] bg-card">
             <DialogHeader>
@@ -792,4 +801,3 @@ export function ChatAssistant() {
     </div>
   );
 }
-
