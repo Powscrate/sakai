@@ -11,7 +11,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk } from '@/ai/flows/chat-assistant-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { LifeInsightsLogo } from '@/components/icons/logo'; // Assuming you might want the logo here
+import { LifeInsightsLogo } from '@/components/icons/logo';
 
 export function ChatAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -110,8 +110,8 @@ export function ChatAssistant() {
     <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-2 md:p-4">
       <Card className="w-full max-w-3xl h-full flex flex-col shadow-xl border rounded-lg">
         <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
-          <div className="flex items-center gap-2">
-            <LifeInsightsLogo className="h-7 w-7 text-primary" />
+          <div className="flex items-center gap-3">
+            <LifeInsightsLogo className="h-8 w-8 text-primary" />
             <CardTitle className="text-xl font-semibold">
               Assistant IA
             </CardTitle>
@@ -119,38 +119,38 @@ export function ChatAssistant() {
         </CardHeader>
         <CardContent className="flex-1 p-0 overflow-hidden">
           <ScrollArea ref={scrollAreaRef} className="h-full">
-            <div className="p-4 space-y-4">
+            <div className="p-6 space-y-6"> {/* Increased padding and spacing */}
               {messages.map((msg, index) => (
                 <div
                   key={index}
                   className={cn(
-                    "flex items-start gap-2.5 p-3 rounded-lg max-w-[85%] break-words shadow-sm",
+                    "flex items-start gap-3 p-4 rounded-lg max-w-[85%] break-words shadow-sm", // Increased padding and gap
                     msg.role === 'user' 
                       ? 'ml-auto bg-primary text-primary-foreground' 
                       : 'mr-auto bg-muted text-muted-foreground' 
                   )}
                 >
-                  {msg.role === 'model' && <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />}
+                  {msg.role === 'model' && <Bot className="h-6 w-6 shrink-0 mt-0.5 text-primary" />} {/* Slightly larger icon */}
                   {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   ) : (
                     <p className="text-sm whitespace-pre-wrap">{msg.parts}</p>
                   )}
-                  {msg.role === 'user' && <User className="h-5 w-5 shrink-0 mt-0.5" />}
+                  {msg.role === 'user' && <User className="h-6 w-6 shrink-0 mt-0.5" />} {/* Slightly larger icon */}
                 </div>
               ))}
               {messages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-                  <Bot size={48} className="mb-4" />
-                  <p className="text-lg font-medium">Comment puis-je vous aider aujourd'hui ?</p>
+                  <Bot size={52} className="mb-5 text-primary" /> {/* Larger icon and margin */}
+                  <p className="text-lg font-medium mb-2">Comment puis-je vous aider aujourd'hui ?</p>
                   <p className="text-sm">Posez-moi une question sur vos données de vie, vos objectifs ou demandez des conseils bien-être.</p>
                 </div>
               )}
             </div>
           </ScrollArea>
         </CardContent>
-        <CardFooter className="p-3 border-t bg-background">
-          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2">
+        <CardFooter className="p-4 border-t bg-background"> {/* Increased padding */}
+          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3"> {/* Increased gap */}
             <Input
               ref={inputRef}
               type="text"
@@ -158,9 +158,9 @@ export function ChatAssistant() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1"
+              className="flex-1 py-3 text-base" /* Increased padding and text size */
             />
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()} aria-label="Envoyer">
+            <Button type="submit" size="lg" disabled={isLoading || !input.trim()} aria-label="Envoyer"> {/* Larger button */}
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
           </form>
