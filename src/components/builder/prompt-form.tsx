@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react'; // Using Wand2 for generate button
 
 interface PromptFormProps {
-  initialPrompt?: string; // Can still accept an initial prompt if needed elsewhere
+  initialPrompt?: string;
   onSubmitPrompt: (prompt: string) => void;
   isLoading: boolean;
 }
@@ -15,8 +15,6 @@ interface PromptFormProps {
 export function PromptForm({ initialPrompt = "", onSubmitPrompt, isLoading }: PromptFormProps) {
   const [prompt, setPrompt] = useState<string>(initialPrompt);
 
-  // Effect to update local prompt state if initialPrompt prop changes
-  // This might be useful if the parent component can reset the prompt
   useEffect(() => {
     setPrompt(initialPrompt);
   }, [initialPrompt]);
@@ -37,25 +35,28 @@ export function PromptForm({ initialPrompt = "", onSubmitPrompt, isLoading }: Pr
         </Label>
         <Textarea
           id="project-prompt"
-          placeholder="Ex: Une application de compteur simple avec un bouton + et -, affichant le compte actuel. Style moderne avec Tailwind."
+          placeholder="Ex: Une application de suivi de tâches simple avec ajout, suppression et marquage comme complété. Utilisez des icônes Lucide et un style moderne avec Tailwind."
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          className="min-h-[200px] flex-1 resize-none bg-background text-sm p-3"
+          className="min-h-[200px] flex-1 resize-none bg-background text-sm p-3 rounded-md shadow-sm focus-visible:ring-primary/80"
           disabled={isLoading}
           rows={10}
         />
          <p className="text-xs text-muted-foreground">
-          Sakai tentera de générer un projet Vite + React + TypeScript + Tailwind CSS. Soyez aussi précis que possible.
+          Sakai tentera de générer un projet complet (Vite + React + TypeScript + Tailwind CSS + Lucide Icons). Soyez aussi précis que possible.
         </p>
       </div>
-      <Button type="submit" disabled={isLoading || !prompt.trim()} className="w-full">
+      <Button type="submit" disabled={isLoading || !prompt.trim()} className="w-full font-semibold py-3 text-base">
         {isLoading ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             Génération en cours...
           </>
         ) : (
-          "Générer le projet"
+          <>
+            <Wand2 className="mr-2 h-5 w-5" />
+            Générer le projet
+          </>
         )}
       </Button>
     </form>
