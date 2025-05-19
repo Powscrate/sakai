@@ -7,15 +7,15 @@ import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle } from 'lucide-react';
+import { Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle, Mail, Plane, Lightbulb, TextSelect, MapPin, Presentation } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
 import { generateImage } from '@/ai/flows/generate-image-flow';
-import { analyzeImage } from '@/ai/flows/analyze-image-flow'; // Correction de l'importation
+import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
-import { KnowledgeDialog } from './knowledge-dialog';
+import { MemoryDialog } from './memory-dialog'; // Changé de KnowledgeDialog à MemoryDialog
 import useLocalStorage from '@/hooks/use-local-storage';
 import { ThemeToggleButton } from './theme-toggle-button';
 
@@ -23,16 +23,18 @@ interface QuickAction {
   label: string;
   prompt: string;
   icon: React.ElementType;
-  actionType?: 'input' | 'command'; // 'input' sets text, 'command' might trigger something else
+  actionType?: 'input' | 'command'; 
 }
 
 const quickActions: QuickAction[] = [
   { label: "Raconte une blague", prompt: "Raconte-moi une blague.", icon: MessageSquarePlus, actionType: 'input' },
-  { label: "Fait amusant", prompt: "Donne-moi un fait amusant.", icon: HelpCircle, actionType: 'input' },
-  { label: "Génère un chat", prompt: "/image un chaton explorant une bibliothèque magique", icon: Zap, actionType: 'input' },
-  { label: "Traduis 'Bonjour'", prompt: "Traduis 'Bonjour le monde' en espagnol.", icon: Languages, actionType: 'input' },
-  { label: "Créer un Workflow (Bientôt)", prompt: "Comment créer un workflow ?", icon: Zap, actionType: 'input'},
-  { label: "Analyser une image (Après upload)", prompt: "Décris cette image.", icon: Paperclip, actionType: 'input' },
+  { label: "Donne un fait amusant", prompt: "Donne-moi un fait amusant.", icon: HelpCircle, actionType: 'input' },
+  { label: "Génère un chaton", prompt: "/image un chaton explorant une bibliothèque magique", icon: Zap, actionType: 'input' },
+  { label: "Traduis 'Bonjour le monde'", prompt: "Traduis 'Bonjour le monde' en espagnol.", icon: Languages, actionType: 'input' },
+  { label: "Résume un email", prompt: "Peux-tu m'aider à résumer cet email : [coller l'email ici] ?", icon: Mail, actionType: 'input' },
+  { label: "Planifie un voyage", prompt: "Aide-moi à planifier un voyage pour [destination] pour [nombre] jours.", icon: Plane, actionType: 'input' },
+  { label: "Rédige un pitch", prompt: "J'ai besoin d'un pitch pour [produit/idée]. Peux-tu m'aider à le rédiger ?", icon: Lightbulb, actionType: 'input' },
+  { label: "Analyser une image", prompt: "Décris cette image.", icon: Paperclip, actionType: 'input' },
 ];
 
 export function ChatAssistant() {
@@ -41,8 +43,8 @@ export function ChatAssistant() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
-  const [userKnowledge, setUserKnowledge] = useLocalStorage<string>('sakaiUserKnowledge', '');
-  const [isKnowledgeDialogOpen, setIsKnowledgeDialogOpen] = useState(false);
+  const [userMemory, setUserMemory] = useLocalStorage<string>('sakaiUserMemory', ''); // Changé de userKnowledge
+  const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false); // Changé de isKnowledgeDialogOpen
   const [uploadedImage, setUploadedImage] = useState<{ dataUri: string; file: File } | null>(null);
   
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -62,16 +64,16 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading, isGeneratingImage, isAnalyzingImage]);
 
   useEffect(() => {
-    if (inputRef.current && !isKnowledgeDialogOpen && !isLoading && !isGeneratingImage && !isAnalyzingImage) { 
+    if (inputRef.current && !isMemoryDialogOpen && !isLoading && !isGeneratingImage && !isAnalyzingImage) { 
       inputRef.current.focus();
     }
-  }, [isLoading, isKnowledgeDialogOpen, isGeneratingImage, isAnalyzingImage]); 
+  }, [isLoading, isMemoryDialogOpen, isGeneratingImage, isAnalyzingImage]); 
 
    useEffect(() => {
-    if (inputRef.current && !isKnowledgeDialogOpen) {
+    if (inputRef.current && !isMemoryDialogOpen) {
       inputRef.current.focus();
     }
-  }, [isKnowledgeDialogOpen]);
+  }, [isMemoryDialogOpen]);
 
   const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -88,13 +90,13 @@ export function ChatAssistant() {
         variant: "destructive",
       });
     }
-    event.target.value = ''; // Reset file input
+    event.target.value = ''; 
   };
 
   const clearUploadedImage = () => {
     setUploadedImage(null);
     if (fileInputRef.current) {
-      fileInputRef.current.value = ''; // Reset file input
+      fileInputRef.current.value = ''; 
     }
   };
 
@@ -216,10 +218,12 @@ export function ChatAssistant() {
     setIsLoading(true);
     const assistantMessageId = `model-${Date.now()}`;
     setMessages(prev => [...prev, { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId }]);
-    const currentHistory = [...messages, newUserMessage]; 
+    // Filtrez l'historique pour ne pas inclure les messages temporaires de chargement du modèle
+    const currentHistory = [...messages, newUserMessage].filter(msg => !(msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image') || msg.parts[0].text.startsWith("Sakai analyse l'image") ));
+
 
     try {
-      const readableStream = await streamChatAssistant({ history: currentHistory, knowledge: userKnowledge });
+      const readableStream = await streamChatAssistant({ history: currentHistory, memory: userMemory }); // Pass userMemory
       const reader = readableStream.getReader();
       
       let accumulatedText = "";
@@ -266,16 +270,15 @@ export function ChatAssistant() {
 
   const handleQuickAction = (action: QuickAction) => {
     if (action.actionType === 'input') {
-      if (action.prompt.startsWith("/image") && uploadedImage) {
-        // If /image quick action and an image is already uploaded, set the input for analysis
-        setInput("Décris cette image."); 
-      } else if (action.label === "Analyser une image (Après upload)") {
+      if (action.label === "Analyser une image") {
          if (uploadedImage) {
-           setInput("Décris cette image en détail.");
+           setInput(action.prompt);
          } else {
-           fileInputRef.current?.click(); // Open file dialog if no image uploaded
-           setInput("Décris cette image."); // Set prompt for when image is selected
+           fileInputRef.current?.click(); 
+           setInput(action.prompt); 
          }
+      } else if (action.prompt.startsWith("/image") && uploadedImage) {
+        setInput("Décris cette image."); 
       }
       else {
         setInput(action.prompt);
@@ -284,10 +287,10 @@ export function ChatAssistant() {
     }
   };
 
-  const handleSaveKnowledge = (newKnowledge: string) => {
-    setUserKnowledge(newKnowledge);
+  const handleSaveMemory = (newMemory: string) => { // Changé de handleSaveKnowledge
+    setUserMemory(newMemory); // Changé de setUserKnowledge
     toast({
-      title: "Connaissances sauvegardées",
+      title: "Mémoire sauvegardée",
       description: "Sakai utilisera ces informations pour ses prochaines réponses.",
     });
   };
@@ -303,11 +306,8 @@ export function ChatAssistant() {
             </CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => setIsKnowledgeDialogOpen(true)} aria-label="Configurer les connaissances">
-              <Bot className="h-[1.3rem] w-[1.3rem] text-primary hover:text-primary/80 transition-colors" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => toast({ title: "Bientôt disponible", description: "Le panneau de mémoire sera bientôt disponible."})} aria-label="Panneau de mémoire (Bientôt disponible)">
-                <Brain className="h-[1.3rem] w-[1.3rem] text-primary hover:text-primary/80 transition-colors" />
+            <Button variant="ghost" size="icon" onClick={() => setIsMemoryDialogOpen(true)} aria-label="Gérer la mémoire de Sakai">
+              <Brain className="h-[1.3rem] w-[1.3rem] text-primary hover:text-primary/80 transition-colors" />
             </Button>
             <ThemeToggleButton />
           </div>
@@ -318,10 +318,10 @@ export function ChatAssistant() {
             <div className="p-4 sm:p-6 space-y-6">
               {messages.length === 0 && !isLoading && !isGeneratingImage && !isAnalyzingImage && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-6">
-                  <SakaiLogo className="h-24 w-24 text-primary opacity-80" />
-                  <p className="text-3xl font-medium">Bonjour ! Je suis Sakai.</p>
+                  <SakaiLogo className="h-28 w-28 text-primary opacity-80" />
+                  <p className="text-3xl font-medium">Bonjour ! Je suis Sakai, votre assistant IA avancé.</p>
                   <p className="text-lg max-w-md">
-                    Comment puis-je vous aider aujourd'hui ? Essayez une action rapide ci-dessous, tapez votre question ou <label htmlFor="file-upload-button" className="text-primary hover:underline cursor-pointer font-medium">téléchargez une image</label> pour l'analyser.
+                    Prêt à explorer ? Essayez une action rapide, posez une question, ou <label htmlFor="file-upload-button" className="text-primary hover:underline cursor-pointer font-medium">téléchargez une image</label> à analyser.
                   </p>
                 </div>
               )}
@@ -419,7 +419,7 @@ export function ChatAssistant() {
           )}
           <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3">
             <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageUpload} className="hidden" id="file-upload-button"/>
-            <Button variant="outline" size="icon" type="button" aria-label="Télécharger une image" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-11 w-11 rounded-lg">
+            <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-11 w-11 rounded-lg">
                 <Paperclip className="h-5 w-5" />
             </Button>
             <Input
@@ -440,13 +440,12 @@ export function ChatAssistant() {
           </form>
         </CardFooter>
       </Card>
-      <KnowledgeDialog
-        isOpen={isKnowledgeDialogOpen}
-        onOpenChange={setIsKnowledgeDialogOpen}
-        currentKnowledge={userKnowledge}
-        onSaveKnowledge={handleSaveKnowledge}
+      <MemoryDialog // Changé de KnowledgeDialog
+        isOpen={isMemoryDialogOpen}
+        onOpenChange={setIsMemoryDialogOpen}
+        currentMemory={userMemory} // Changé de currentKnowledge
+        onSaveMemory={handleSaveMemory} // Changé de onSaveKnowledge
       />
     </div>
   );
 }
-

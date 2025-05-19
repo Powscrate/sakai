@@ -35,7 +35,7 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 const ChatAssistantInputSchema = z.object({
   history: z.array(ChatMessageSchema).describe("L'historique de la conversation, le message le plus récent est le dernier."),
-  knowledge: z.string().optional().describe("Connaissances fournies par l'utilisateur pour guider l'assistant."),
+  memory: z.string().optional().describe("Mémoire personnalisée fournie par l'utilisateur pour guider l'assistant."),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
@@ -50,24 +50,40 @@ export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
 
-  let systemInstructionText = `Vous êtes Sakai, un assistant IA convivial, serviable et créatif.
-Vous pouvez raconter des blagues, de courtes histoires si on vous le demande, et aider avec diverses tâches créatives.
-Répondez toujours en FRANÇAIS.
-Soyez concis mais informatif.
-Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale et créative, dites-le poliment.
+  let systemInstructionText = `Vous êtes Sakai, un assistant IA exceptionnellement convivial, serviable, créatif et polyvalent.
+Votre mission est d'aider les utilisateurs dans une multitude de tâches :
+- Vous pouvez rédiger des emails, des poèmes, des scripts, ou des pitchs.
+- Vous pouvez aider à planifier des voyages ou des événements.
+- Vous pouvez résumer des textes ou des idées complexes.
+- Vous pouvez traduire des phrases ou des documents.
+- Vous excellez à raconter des blagues, des faits amusants, ou de courtes histoires captivantes.
+- Vous pouvez générer des idées, brainstormer, et agir comme un partenaire de réflexion.
+- N'hésitez pas à adopter différentes personnalités si l'utilisateur vous le demande, pour rendre l'interaction plus engageante.
+
+Répondez toujours en FRANÇAIS, avec un ton chaleureux et professionnel.
+Soyez concis lorsque c'est approprié, mais n'hésitez pas à être plus détaillé si la situation le demande.
+Si vous ne connaissez pas la réponse ou si une demande sort de votre champ de compétences actuel, exprimez-le poliment et clairement.
 La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
 
-  if (input.knowledge && input.knowledge.trim() !== '') {
-    systemInstructionText = `Vous êtes Sakai, un assistant IA convivial, serviable et créatif.
-L'utilisateur a fourni les informations suivantes pour guider vos réponses et définir votre contexte spécifique. Veuillez les prendre en compte prioritairement lorsque cela est pertinent :
----DEBUT DES CONNAISSANCES UTILISATEUR---
-${input.knowledge}
----FIN DES CONNAISSANCES UTILISATEUR---
+  if (input.memory && input.memory.trim() !== '') {
+    systemInstructionText = `Vous êtes Sakai, un assistant IA exceptionnellement convivial, serviable, créatif et polyvalent.
+L'utilisateur a fourni les informations suivantes dans votre panneau de mémoire. Ces informations sont cruciales pour personnaliser vos réponses et définir votre contexte spécifique. Veuillez les prendre en compte prioritairement et les intégrer naturellement lorsque cela est pertinent :
+---DEBUT DE LA MÉMOIRE UTILISATEUR---
+${input.memory}
+---FIN DE LA MÉMOIRE UTILISATEUR---
 
-Votre rôle général est d'aider les utilisateurs et d'être créatif. Vous pouvez raconter des blagues et de courtes histoires.
-Répondez toujours en FRANÇAIS.
-Soyez concis mais informatif.
-Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale et créative, dites-le poliment.
+En plus de cette mémoire, votre rôle général est d'aider les utilisateurs dans une multitude de tâches :
+- Vous pouvez rédiger des emails, des poèmes, des scripts, ou des pitchs.
+- Vous pouvez aider à planifier des voyages ou des événements.
+- Vous pouvez résumer des textes ou des idées complexes.
+- Vous pouvez traduire des phrases ou des documents.
+- Vous excellez à raconter des blagues, des faits amusants, ou de courtes histoires captivantes.
+- Vous pouvez générer des idées, brainstormer, et agir comme un partenaire de réflexion.
+- N'hésitez pas à adopter différentes personnalités si l'utilisateur vous le demande, pour rendre l'interaction plus engageante.
+
+Répondez toujours en FRANÇAIS, avec un ton chaleureux et professionnel.
+Soyez concis lorsque c'est approprié, mais n'hésitez pas à être plus détaillé si la situation le demande.
+Si vous ne connaissez pas la réponse ou si une demande sort de votre champ de compétences actuel (en tenant compte de la mémoire fournie), exprimez-le poliment et clairement.
 La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
   }
 
@@ -78,18 +94,26 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
         if (part.type === 'text') {
           return { text: part.text };
         } else if (part.type === 'image') {
-          return { media: { url: part.imageDataUri, mimeType: part.mimeType } };
+          // Tenter d'inférer le mimeType si non fourni
+          let finalMimeType = part.mimeType;
+          if (!finalMimeType && part.imageDataUri) {
+            if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
+            else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
+            else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
+          }
+          return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
         // Fallback pour les types de parts inconnus, bien que le schéma devrait l'empêcher
         return { text: '' }; 
       });
       return {
-        role: msg.role as 'user' | 'model',
+        role: msg.role as 'user' | 'model', // Assurez-vous que le rôle est correctement typé
         content: content,
       };
     });
 
-  const { stream: genkitStream, response: genkitResponse } = ai.generateStream({ // Renommé response à genkitResponse
+  // Créez un ReadableStream pour envoyer les données au client
+  const { stream: genkitStream, response: genkitResponse } = ai.generateStream({
     model: 'googleai/gemini-1.5-flash-latest',
     systemInstruction: systemInstructionText,
     messages: messagesForApi,
@@ -121,10 +145,11 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
       try {
         for await (const genkitChunk of genkitStream) { 
           let currentText = "";
-          // La structure de genkitChunk peut varier. Si elle a un champ 'text' direct ou un champ 'content' avec des 'parts'
+          // La structure de genkitChunk peut varier. 
+          // Pour Gemini 1.5 Flash, le texte est souvent dans chunk.text
           if (genkitChunk.text) {
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) {
+          } else if (genkitChunk.content) { // Fallback pour d'autres structures potentielles
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
@@ -136,21 +161,22 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
             controller.enqueue({ text: currentText });
           }
         }
-        await genkitResponse; // Attendre la réponse complète pour la gestion des erreurs potentielles
+        // Attendre la réponse complète pour la gestion des erreurs potentielles ou la finalisation
+        await genkitResponse; 
       } catch (error: any) {
         console.error("Erreur pendant le streaming côté serveur:", error);
         try {
-            // Essayez d'extraire un message d'erreur plus utile si disponible
             const message = error.cause?.message || error.message || "Une erreur est survenue lors du traitement du flux.";
             controller.enqueue({ error: message });
         } catch (e) {
-            console.error("Impossible d'envoyer l'erreur au client:", e);
+            // Si controller.enqueue échoue ici, c'est probablement parce que le flux est déjà fermé.
+            console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé):", e);
         }
       } finally {
         try {
             controller.close();
         } catch (e) {
-            console.error("Erreur lors de la fermeture du contrôleur de flux:", e);
+             console.error("Erreur lors de la fermeture du contrôleur de flux:", e);
         }
       }
     }
