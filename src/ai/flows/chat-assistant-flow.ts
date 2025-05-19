@@ -52,7 +52,7 @@ export async function streamChatAssistant(
     }));
 
   const {stream, response} = ai.generateStream({
-    model: 'googleai/gemini-1.0-pro', // Changed from gemini-pro
+    model: 'googleai/gemini-1.5-flash-latest', // Changed to a model known to work with v1beta streaming
     systemInstruction: systemInstructionText,
     messages: messagesForApi,
     config: {
@@ -94,3 +94,4 @@ export async function streamChatAssistant(
   
   return await response; 
 }
+
