@@ -38,13 +38,12 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current && !isKnowledgeDialogOpen) { // Avoid refocusing if dialog is open
+    if (inputRef.current && !isKnowledgeDialogOpen) { 
       inputRef.current.focus();
     }
-  }, [isLoading, isKnowledgeDialogOpen]); // Focus on load changes or when dialog closes
+  }, [isLoading, isKnowledgeDialogOpen]); 
 
    useEffect(() => {
-    // Initial focus when component mounts and dialog is not open
     if (inputRef.current && !isKnowledgeDialogOpen) {
       inputRef.current.focus();
     }
@@ -92,6 +91,7 @@ export function ChatAssistant() {
               };
               return updatedMessages;
             }
+            // This case should ideally not be hit if we always add an empty model message first
             return [...prev, { role: 'model', parts: chatChunk.text }];
           });
         }
@@ -111,11 +111,11 @@ export function ChatAssistant() {
             updatedMessages[lastMessageIndex] = { ...updatedMessages[lastMessageIndex], parts: errorMessage };
             return updatedMessages;
          }
+        // Fallback, should not happen if logic above is correct
         return [...prev, { role: 'model', parts: errorMessage }];
       });
     } finally {
       setIsLoading(false);
-      // setTimeout(() => inputRef.current?.focus(), 0); // Refocus handled by useEffect
     }
   };
 
@@ -130,7 +130,7 @@ export function ChatAssistant() {
   return (
     <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-2 md:p-4">
       <Card className="w-full max-w-3xl h-full flex flex-col shadow-xl border rounded-lg overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between p-4 border-b shrink-0">
+        <CardHeader className="flex flex-row items-center justify-between p-4 border-b shrink-0 bg-card">
           <div className="flex items-center gap-3">
             <LifeInsightsLogo className="h-8 w-8 text-primary" />
             <CardTitle className="text-xl font-semibold">
@@ -138,12 +138,12 @@ export function ChatAssistant() {
             </CardTitle>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setIsKnowledgeDialogOpen(true)} aria-label="Configurer les connaissances">
-            <Settings className="h-5 w-5 text-primary" />
+            <Settings className="h-5 w-5 text-primary hover:text-primary/80" />
           </Button>
         </CardHeader>
         <CardContent className="flex-1 p-0 overflow-hidden">
-          <ScrollArea ref={scrollAreaRef} className="h-full">
-            <div className="p-6 space-y-6">
+          <ScrollArea ref={scrollAreaRef} className="h-full bg-background">
+            <div className="p-4 sm:p-6 space-y-6">
               {messages.map((msg, index) => (
                 <div
                   key={index}
@@ -167,15 +167,19 @@ export function ChatAssistant() {
               ))}
               {messages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-                  <Bot size={56} className="mb-6 text-primary" />
-                  <p className="text-xl font-medium mb-3">Comment puis-je vous aider aujourd'hui ?</p>
-                  <p className="text-base">Posez une question à votre assistant IA ou personnalisez ses connaissances via l'icône <Settings className="inline h-4 w-4" /> en haut à droite.</p>
+                  <Bot size={64} className="mb-6 text-primary" />
+                  <p className="text-2xl font-medium mb-4">Comment puis-je vous aider aujourd'hui ?</p>
+                  <p className="text-base max-w-md">
+                    Posez une question à votre assistant IA. Vous pouvez aussi personnaliser ses connaissances et son contexte via l'icône 
+                    <Settings className="inline-block align-middle h-5 w-5 mx-1 text-primary" /> 
+                    en haut à droite.
+                  </p>
                 </div>
               )}
             </div>
           </ScrollArea>
         </CardContent>
-        <CardFooter className="p-4 border-t bg-background shrink-0">
+        <CardFooter className="p-4 border-t bg-card shrink-0">
           <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3">
             <Input
               ref={inputRef}
@@ -184,9 +188,9 @@ export function ChatAssistant() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1 py-3 px-4 text-base rounded-lg"
+              className="flex-1 py-3 px-4 text-sm rounded-lg bg-background focus-visible:ring-primary/50" 
             />
-            <Button type="submit" size="lg" disabled={isLoading || !input.trim()} aria-label="Envoyer" className="rounded-lg">
+            <Button type="submit" size="lg" disabled={isLoading || !input.trim()} aria-label="Envoyer" className="rounded-lg px-6">
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
           </form>
