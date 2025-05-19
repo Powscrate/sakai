@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, MessageCircle, X, Loader2, User, Bot } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { streamChatAssistant, type ChatMessage } from '@/ai/flows/chat-assistant-flow';
+import { streamChatAssistant, type ChatMessage, type ChatStreamChunk } from '@/ai/flows/chat-assistant-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,49 +44,65 @@ export function ChatAssistant() {
 
     const newUserMessage: ChatMessage = { role: 'user', parts: input.trim() };
     
-    // Add user message and model placeholder in a single state update to ensure `history` is correct
     setMessages(prev => [...prev, newUserMessage, { role: 'model', parts: '' }]);
-    const currentInput = input; // Save input before clearing
-    const currentHistory = [...messages, newUserMessage]; // History to send to the flow
+    const currentHistory = [...messages, newUserMessage]; 
 
     setInput('');
     setIsLoading(true);
 
     try {
-      await streamChatAssistant(
-        { history: currentHistory }, 
-        (chunk) => { 
-          if (chunk.text) {
-            setMessages(prev => {
-              const lastMessageIndex = prev.length - 1;
-              if (lastMessageIndex >= 0 && prev[lastMessageIndex].role === 'model') {
-                const updatedMessages = [...prev];
-                updatedMessages[lastMessageIndex] = {
-                  ...updatedMessages[lastMessageIndex],
-                  parts: updatedMessages[lastMessageIndex].parts + chunk.text,
-                };
-                return updatedMessages;
-              }
-              return [...prev, { role: 'model', parts: chunk.text }];
-            });
-          }
+      const readableStream = await streamChatAssistant({ history: currentHistory });
+      const reader = readableStream.getReader();
+      // const decoder = new TextDecoder(); // Not needed if ChatStreamChunk is enqueued directly
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read(); // value is ChatStreamChunk
+        
+        if (done) {
+          break;
         }
-      );
+
+        // Directly use 'value' as it's already ChatStreamChunk
+        const chatChunk: ChatStreamChunk = value;
+
+        if (chatChunk.error) {
+          throw new Error(chatChunk.error);
+        }
+
+        if (chatChunk.text) {
+          setMessages(prev => {
+            const lastMessageIndex = prev.length - 1;
+            if (lastMessageIndex >= 0 && prev[lastMessageIndex].role === 'model') {
+              const updatedMessages = [...prev];
+              updatedMessages[lastMessageIndex] = {
+                ...updatedMessages[lastMessageIndex],
+                parts: updatedMessages[lastMessageIndex].parts + chatChunk.text,
+              };
+              return updatedMessages;
+            }
+            // This case might not be hit if we always have a placeholder
+            return [...prev, { role: 'model', parts: chatChunk.text }];
+          });
+        }
+      }
     } catch (error: any) {
-      console.error("Erreur lors du streaming du chat:", error);
+      console.error("Erreur lors du streaming du chat (côté client):", error);
+      const errorMessage = error?.message || "Désolé, une erreur est survenue. Veuillez réessayer.";
       toast({
         title: "Erreur de l'assistant",
-        description: error?.message || "Désolé, une erreur est survenue. Veuillez réessayer.",
+        description: errorMessage,
         variant: "destructive",
       });
       setMessages(prev => {
          const lastMessageIndex = prev.length - 1;
          if (lastMessageIndex >=0 && prev[lastMessageIndex].role === 'model' && prev[lastMessageIndex].parts === '') {
             const updatedMessages = [...prev];
-            updatedMessages[lastMessageIndex] = { ...updatedMessages[lastMessageIndex], parts: "Désolé, une erreur est survenue." };
+            updatedMessages[lastMessageIndex] = { ...updatedMessages[lastMessageIndex], parts: errorMessage };
             return updatedMessages;
          }
-        return [...prev, { role: 'model', parts: "Désolé, une erreur est survenue." }];
+        // If there was no placeholder or it was already filled, add a new error message
+        return [...prev, { role: 'model', parts: errorMessage }];
       });
     } finally {
       setIsLoading(false);
@@ -131,7 +147,6 @@ export function ChatAssistant() {
                     )}
                   >
                     {msg.role === 'model' && <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />}
-                    {/* Display loader inside the model message bubble if it's the last one, loading, and empty */}
                     {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     ) : (
