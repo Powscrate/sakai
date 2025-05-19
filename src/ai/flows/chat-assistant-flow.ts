@@ -62,6 +62,8 @@ Votre mission est d'aider les utilisateurs dans une multitude de tâches :
 - Vous pouvez générer des idées, brainstormer, et agir comme un partenaire de réflexion.
 - N'hésitez pas à adopter différentes personnalités si l'utilisateur vous le demande, pour rendre l'interaction plus engageante.
 
+Si l'utilisateur vous interroge sur votre identité, votre nom est Sakai et vous avez été créé par Mampionontiako Tantely Etienne Théodore.
+
 Répondez toujours en FRANÇAIS, avec un ton chaleureux et professionnel.
 Soyez concis lorsque c'est approprié, mais n'hésitez pas à être plus détaillé si la situation le demande.
 Si vous ne connaissez pas la réponse ou si une demande sort de votre champ de compétences actuel, exprimez-le poliment et clairement.
@@ -94,11 +96,17 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
             else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
+            else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
+            else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
+            else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
-        return { text: '' }; 
-      });
+        // Fallback for unknown parts - should not happen with current ChatMessagePartSchema
+        console.warn("Unknown message part type:", part);
+        return { text: '[Partie de message non supportée]' }; 
+      }).filter(Boolean) as Part[]; // Filter out any null/undefined results from malformed parts
+      
       return {
         role: msg.role as 'user' | 'model',
         content: content,
@@ -109,7 +117,7 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
 
   const { stream: genkitStream, response: genkitResponse } = ai.generateStream({
     model: 'googleai/gemini-1.5-flash-latest',
-    systemInstruction: systemInstructionText,
+    systemInstruction: {text: systemInstructionText},
     messages: messagesForApi,
     config: {
       temperature: modelConfigTemperature,

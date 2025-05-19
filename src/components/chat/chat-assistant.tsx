@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle, 
-  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2
+  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -135,8 +135,16 @@ export function ChatAssistant() {
       
       Array.from(files).forEach(file => {
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 11)}-${encodeURIComponent(file.name)}`;
-        const isAllowedMimeType = allowedTypes.includes(file.type);
-        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt');
+        
+        let effectiveMimeType = file.type;
+        if (!effectiveMimeType) {
+            if (file.name.endsWith('.md')) effectiveMimeType = 'text/markdown';
+            else if (file.name.endsWith('.txt')) effectiveMimeType = 'text/plain';
+        }
+
+        const isAllowedMimeType = allowedTypes.includes(effectiveMimeType);
+        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.pdf');
+
 
         if (isAllowedMimeType || isAllowedExtension) {
           const reader = new FileReader();
@@ -164,14 +172,14 @@ export function ChatAssistant() {
         } else {
           toast({
             title: "Type de fichier non supporté",
-            description: `Le fichier "${file.name}" (type: ${file.type || 'inconnu'}) n'est pas supporté. Veuillez sélectionner une image (PNG, JPG, WEBP), un PDF, ou un fichier texte (.txt, .md).`,
+            description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Veuillez sélectionner une image (PNG, JPG, WEBP), un PDF, ou un fichier texte (.txt, .md).`,
             variant: "destructive",
           });
         }
       });
     }
     if (event.target) {
-        event.target.value = '';
+        event.target.value = ''; // Reset file input to allow re-uploading the same file
     }
   };
 
@@ -190,7 +198,7 @@ export function ChatAssistant() {
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
-    setCurrentStreamingMessageId(null); // Not streaming text for image generation
+    setCurrentStreamingMessageId(null); 
     setMessages(prev => [...prev, { 
       role: 'model', 
       parts: [{type: 'text', text: `Sakai génère une image pour : "${promptText}"...`}], 
@@ -252,10 +260,11 @@ export function ChatAssistant() {
       if (!mimeType) { 
         if (fileWrapper.file.name.endsWith('.md')) mimeType = 'text/markdown';
         else if (fileWrapper.file.name.endsWith('.txt')) mimeType = 'text/plain';
-        else mimeType = 'application/octet-stream'; 
+        else if (fileWrapper.file.name.endsWith('.pdf')) mimeType = 'application/pdf';
+        else mimeType = 'application/octet-stream'; // Fallback
       }
       newUserMessageParts.push({
-        type: 'image', 
+        type: 'image', // Using 'image' part type for generic media as per Gemini multimodal input
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType 
       });
@@ -472,7 +481,7 @@ export function ChatAssistant() {
             data-ai-hint="user uploaded"
           />
         );
-      } else { 
+      } else { // For PDF, TXT, MD files
         return (
           <div key={uniquePartKey} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
             <FileText className="h-6 w-6 text-primary shrink-0" />
@@ -517,6 +526,10 @@ export function ChatAssistant() {
                   Mode Développeur
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                 <DropdownMenuItem onClick={() => window.open('https://wa.me/261343775058', '_blank')}>
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Contacter le développeur
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
                   <Info className="mr-2 h-4 w-4" />
                   À propos de Sakai
@@ -542,11 +555,8 @@ export function ChatAssistant() {
                 const isUser = msg.role === 'user';
                 const isLastMessageOfList = msgIndex === messages.length - 1;
                 
-                // isLoadingMessage for initial "Sakai réfléchit..." for the current text stream
                 const isLoadingMessage = isLoading && msg.role === 'model' && msg.id === currentStreamingMessageId && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
                 
-                // isImageGenPlaceholder for image generation specific loading.
-                // Ensure it doesn't conflict with currentStreamingMessageId if an image is generated via /image command.
                 const isImageGenPlaceholder = isLoading && msg.role === 'model' && (msg.id !== currentStreamingMessageId || !currentStreamingMessageId) && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
                 
                 return (
@@ -707,6 +717,10 @@ export function ChatAssistant() {
               <p className="mb-2">Sakai est votre assistant IA personnel, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle (via Genkit et les modèles Gemini de Google) pour vous offrir une expérience interactive et enrichissante.</p>
               <p>Version: 1.3.0 (Prototype avec analyse multi-fichiers et blocs de code)</p>
+              <p className="mt-4 text-xs text-muted-foreground">
+                © Tous droits réservés.<br />
+                Créateur & Développeur : MAMPIONONTIAKO Tantely Etienne Théodore
+              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -787,7 +801,12 @@ export function ChatAssistant() {
                     Réinitialiser par Défaut
                 </Button>
                 <DialogClose asChild>
-                    <Button type="button" variant="ghost" onClick={()=> setIsDevSettingsOpen(false)}>
+                    <Button type="button" variant="ghost" onClick={()=> {
+                      // Restore temp values to actual stored values if canceling
+                      setTempOverrideSystemPrompt(devOverrideSystemPrompt);
+                      setTempModelTemperature(devModelTemperature ?? 0.7);
+                      setIsDevSettingsOpen(false);
+                    }}>
                         Annuler
                     </Button>
                 </DialogClose>
@@ -801,3 +820,4 @@ export function ChatAssistant() {
     </div>
   );
 }
+
