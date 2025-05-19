@@ -1,41 +1,10 @@
 // src/types/index.ts
-import type { LucideIcon } from 'lucide-react';
+// All specific metric, goal, and entry types have been removed
+// as the application is now focused on chat.
+// Chat-specific types like ChatMessage and ChatStreamChunk are defined
+// and exported directly from src/ai/flows/chat-assistant-flow.ts
 
-export type MetricId = 'exercise' | 'sleep' | 'mood' | 'water' | string;
+// This file can be kept for future global types or removed if not needed.
+// For now, it will be empty.
 
-export interface MetricDefinition {
-  id: MetricId;
-  name: string;
-  unit: string;
-  icon: LucideIcon;
-  color?: string; // Optional color for charts, e.g., 'hsl(var(--chart-1))'
-  placeholder?: string; // Placeholder for input field
-  min?: number;
-  max?: number;
-  step?: number;
-}
-
-export interface MetricEntry {
-  id: string; // unique id for the entry, e.g., uuid
-  metricId: MetricId;
-  date: string; // ISO string (e.g., YYYY-MM-DD)
-  value: number;
-  notes?: string;
-  createdAt: string; // ISO string timestamp
-}
-
-export interface Goal {
-  id: string; // unique id for the goal
-  metricId: MetricId;
-  description: string;
-  targetValue: number;
-  currentValue: number; // Calculated based on metric entries
-  startDate: string; // ISO string (e.g., YYYY-MM-DD)
-  deadline: string; // ISO string (e.g., YYYY-MM-DD)
-  isAchieved: boolean;
-  createdAt: string; // ISO string timestamp
-}
-
-export interface CustomMetric extends MetricDefinition {
-  isCustom: true;
-}
+export {}; // Ensures the file is treated as a module

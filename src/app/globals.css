@@ -38,16 +38,6 @@ body {
 
     --radius: 0.5rem;
 
-    /* Sidebar specific theme */
-    --sidebar-background: 0 0% 100%; /* White sidebar */
-    --sidebar-foreground: 240 5.9% 10%; /* Dark text */
-    --sidebar-primary: 207 90.2% 70.4%; /* Calming blue for active/primary items */
-    --sidebar-primary-foreground: 0 0% 98%; /* Light text on primary blue */
-    --sidebar-accent: 220 14.3% 95.9%; /* Light gray for hover */
-    --sidebar-accent-foreground: 240 5.9% 10%; /* Dark text on hover */
-    --sidebar-border: 214.3 31.8% 88%; /* Consistent border */
-    --sidebar-ring: 207 90.2% 70.4%; /* Blue for rings */
-
     /* Chart colors (can be expanded) */
     --chart-1: 207 90.2% 70.4%; /* Primary Blue */
     --chart-2: 33 100% 64.7%; /* Accent Orange */
@@ -84,16 +74,6 @@ body {
     --border: 240 3.7% 25.9%;
     --input: 240 3.7% 25.9%;
     --ring: 207 90.2% 60.4%;
-
-    /* Sidebar specific theme for dark mode */
-    --sidebar-background: 240 4.8% 14%; /* Darker sidebar */
-    --sidebar-foreground: 0 0% 98%; /* Light text */
-    --sidebar-primary: 207 90.2% 60.4%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 3.7% 20%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 25.9%;
-    --sidebar-ring: 207 90.2% 60.4%;
     
     /* Chart colors for dark mode */
     --chart-1: 207 80% 65%;

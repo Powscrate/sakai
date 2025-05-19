@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { AppShell } from '@/components/layout/app-shell';
 import { Toaster } from "@/components/ui/toaster";
-import { ChatAssistant } from '@/components/chat/chat-assistant';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -16,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Perspectives de Vie',
-  description: 'Suivez et analysez vos métriques de vie.',
+  title: 'Assistant IA',
+  description: 'Discutez avec notre assistant IA intelligent.',
 };
 
 export default function RootLayout({
@@ -31,7 +30,6 @@ export default function RootLayout({
         <AppShell>
           {children}
         </AppShell>
-        <ChatAssistant />
         <Toaster />
       </body>
     </html>

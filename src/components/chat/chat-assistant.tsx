@@ -6,14 +6,14 @@ import { useState, useRef, useEffect, FormEvent } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, MessageCircle, X, Loader2, User, Bot } from 'lucide-react';
+import { Send, Loader2, User, Bot } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk } from '@/ai/flows/chat-assistant-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { LifeInsightsLogo } from '@/components/icons/logo'; // Assuming you might want the logo here
 
 export function ChatAssistant() {
-  const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -33,10 +33,10 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
+    if (inputRef.current) {
       inputRef.current.focus();
     }
-  }, [isOpen]);
+  }, []); // Focus on mount
 
   const handleSendMessage = async (e?: FormEvent<HTMLFormElement>) => {
     if (e) e.preventDefault();
@@ -53,8 +53,7 @@ export function ChatAssistant() {
     try {
       const readableStream = await streamChatAssistant({ history: currentHistory });
       const reader = readableStream.getReader();
-      // const decoder = new TextDecoder(); // Not needed if ChatStreamChunk is enqueued directly
-
+      
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read(); // value is ChatStreamChunk
@@ -63,7 +62,6 @@ export function ChatAssistant() {
           break;
         }
 
-        // Directly use 'value' as it's already ChatStreamChunk
         const chatChunk: ChatStreamChunk = value;
 
         if (chatChunk.error) {
@@ -81,7 +79,6 @@ export function ChatAssistant() {
               };
               return updatedMessages;
             }
-            // This case might not be hit if we always have a placeholder
             return [...prev, { role: 'model', parts: chatChunk.text }];
           });
         }
@@ -101,7 +98,6 @@ export function ChatAssistant() {
             updatedMessages[lastMessageIndex] = { ...updatedMessages[lastMessageIndex], parts: errorMessage };
             return updatedMessages;
          }
-        // If there was no placeholder or it was already filled, add a new error message
         return [...prev, { role: 'model', parts: errorMessage }];
       });
     } finally {
@@ -111,71 +107,65 @@ export function ChatAssistant() {
   };
 
   return (
-    <>
-      <Button
-        variant="default"
-        size="icon"
-        className="fixed bottom-6 right-6 rounded-full h-14 w-14 shadow-lg z-50"
-        onClick={() => setIsOpen(!isOpen)}
-        aria-label={isOpen ? "Fermer le chat" : "Ouvrir le chat"}
-      >
-        {isOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
-      </Button>
-
-      {isOpen && (
-        <Card className="fixed bottom-24 right-6 w-[calc(100vw-3rem)] max-w-md h-[calc(100vh-8rem)] max-h-[600px] shadow-xl z-40 flex flex-col border rounded-lg bg-card">
-          <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
-            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-              <Bot className="h-6 w-6 text-primary" />
-              Assistant Perspectives de Vie
+    <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-2 md:p-4">
+      <Card className="w-full max-w-3xl h-full flex flex-col shadow-xl border rounded-lg">
+        <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <LifeInsightsLogo className="h-7 w-7 text-primary" />
+            <CardTitle className="text-xl font-semibold">
+              Assistant IA
             </CardTitle>
-            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="h-5 w-5" />
+          </div>
+        </CardHeader>
+        <CardContent className="flex-1 p-0 overflow-hidden">
+          <ScrollArea ref={scrollAreaRef} className="h-full">
+            <div className="p-4 space-y-4">
+              {messages.map((msg, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    "flex items-start gap-2.5 p-3 rounded-lg max-w-[85%] break-words shadow-sm",
+                    msg.role === 'user' 
+                      ? 'ml-auto bg-primary text-primary-foreground' 
+                      : 'mr-auto bg-muted text-muted-foreground' 
+                  )}
+                >
+                  {msg.role === 'model' && <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />}
+                  {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{msg.parts}</p>
+                  )}
+                  {msg.role === 'user' && <User className="h-5 w-5 shrink-0 mt-0.5" />}
+                </div>
+              ))}
+              {messages.length === 0 && !isLoading && (
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
+                  <Bot size={48} className="mb-4" />
+                  <p className="text-lg font-medium">Comment puis-je vous aider aujourd'hui ?</p>
+                  <p className="text-sm">Posez-moi une question sur vos données de vie, vos objectifs ou demandez des conseils bien-être.</p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+        <CardFooter className="p-3 border-t bg-background">
+          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2">
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder="Posez une question..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={isLoading}
+              className="flex-1"
+            />
+            <Button type="submit" size="icon" disabled={isLoading || !input.trim()} aria-label="Envoyer">
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
-          </CardHeader>
-          <CardContent className="flex-1 p-0 overflow-hidden">
-            <ScrollArea ref={scrollAreaRef} className="h-full">
-              <div className="p-4 space-y-4">
-                {messages.map((msg, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      "flex items-start gap-2.5 p-3 rounded-lg max-w-[85%] break-words",
-                      msg.role === 'user' 
-                        ? 'ml-auto bg-primary text-primary-foreground' 
-                        : 'mr-auto bg-muted text-foreground'
-                    )}
-                  >
-                    {msg.role === 'model' && <Bot className="h-5 w-5 shrink-0 mt-0.5 text-primary" />}
-                    {msg.role === 'model' && isLoading && index === messages.length - 1 && msg.parts === '' ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    ) : (
-                      <p className="text-sm whitespace-pre-wrap">{msg.parts}</p>
-                    )}
-                    {msg.role === 'user' && <User className="h-5 w-5 shrink-0 mt-0.5" />}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </CardContent>
-          <CardFooter className="p-2 border-t bg-background">
-            <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2">
-              <Input
-                ref={inputRef}
-                type="text"
-                placeholder="Posez une question..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={isLoading}
-                className="flex-1"
-              />
-              <Button type="submit" size="icon" disabled={isLoading || !input.trim()} aria-label="Envoyer">
-                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-              </Button>
-            </form>
-          </CardFooter>
-        </Card>
-      )}
-    </>
+          </form>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }
