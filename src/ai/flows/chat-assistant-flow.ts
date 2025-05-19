@@ -9,7 +9,7 @@
  */
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import type {GenerateResult, MessageData, Part} from 'genkit'; // Removed StreamingCallback as it's not used for onChunk type anymore
+import type {GenerateResult, MessageData, Part, GenerateStreamResponseData} from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -26,18 +26,18 @@ const ChatAssistantInputSchema = z.object({
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
 // Define the expected chunk structure for the callback, matching ai.generateStream's output
-type ChatStreamChunk = {
+// GenerateStreamResponseData already includes { text?: string; ... }
+// type ChatStreamChunk = GenerateStreamResponseData; // More complete type
+export type ChatStreamChunk = { // Simpler type, focusing on text, which is what the UI uses
   text?: string;
-  // Include other properties from GenerateStreamResponseChunk if they were to be used by the client
-  // toolRequests?: any[]; 
-  // toolResponses?: any[];
-  // custom?: any;
-  // error?: string;
+  // Other fields from GenerateStreamResponseData could be added if needed by the client
+  // e.g., error?: string; finishReason?: string;
 };
+
 
 export async function streamChatAssistant(
   input: ChatAssistantInput,
-  onChunk: (chunk: ChatStreamChunk) => void | Promise<void> // Use the more accurate callback type
+  onChunk: (chunk: ChatStreamChunk) => void | Promise<void>
 ): Promise<GenerateResult | undefined> {
 
   const systemMessage: ChatMessage = {
@@ -56,6 +56,7 @@ export async function streamChatAssistant(
   }));
 
   const {stream, response} = ai.generateStream({
+    model: 'googleai/gemini-pro', // Explicitly using gemini-pro for diagnostics
     messages: messagesForApi,
     config: {
       temperature: 0.7,
@@ -78,7 +79,7 @@ export async function streamChatAssistant(
         },
       ]
     },
-    streamingCallback: onChunk, // Pass the callback directly
+    streamingCallback: onChunk as (chunk: GenerateStreamResponseData) => void | Promise<void>, // Cast to satisfy the expected type
   });
 
   for await (const _ of stream) {
@@ -86,3 +87,4 @@ export async function streamChatAssistant(
   }
   return await response; 
 }
+
