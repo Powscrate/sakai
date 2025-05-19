@@ -3,13 +3,13 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent, ChangeEvent, Fragment } from 'react';
-import Image from 'next/image';
+import NextImage from 'next/image'; // Renamed to avoid conflict with lucide-react Image
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle, 
-  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare
+  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare, Image as ImageIcon, Ratio, Palette, LayoutGrid
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,15 +41,20 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
-import { generateImage } from '@/ai/flows/generate-image-flow';
+import { generateImage, type GenerateImageInput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
 import { MemoryDialog } from './memory-dialog';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { ThemeToggleButton } from './theme-toggle-button';
+import Link from 'next/link';
 
 interface QuickAction {
   label: string;
@@ -77,6 +82,23 @@ interface UploadedFileWrapper {
   id: string;
 }
 
+const imageStyles = [
+  { value: "default", label: "Par défaut" },
+  { value: "photorealistic", label: "Photoréaliste" },
+  { value: "cartoon", label: "Dessin animé" },
+  { value: "pixel_art", label: "Pixel Art" },
+  { value: "watercolor", label: "Aquarelle" },
+  { value: "fantasy", label: "Fantaisie" },
+  { value: "cyberpunk", label: "Cyberpunk" },
+];
+
+const imageAspectRatios = [
+  { value: "1:1", label: "Carré (1:1)" },
+  { value: "16:9", label: "Large (16:9)" },
+  { value: "9:16", label: "Portrait (9:16)" },
+];
+
+
 export function ChatAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -99,6 +121,10 @@ export function ChatAssistant() {
 
   const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
 
+  const [isImageSettingsPopoverOpen, setIsImageSettingsPopoverOpen] = useState(false);
+  const [imageStyle, setImageStyle] = useState<string>("default");
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>("1:1");
+
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -117,16 +143,24 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isLoading ) { 
+    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isLoading && !isImageSettingsPopoverOpen ) { 
       inputRef.current.focus();
     }
-  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen]); 
+  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isImageSettingsPopoverOpen]); 
 
    useEffect(() => {
-    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen) {
+    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen && !isImageSettingsPopoverOpen) {
       inputRef.current.focus();
     }
-  }, [isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isFeaturesDialogOpen, isAboutDialogOpen]);
+  }, [isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isFeaturesDialogOpen, isAboutDialogOpen, isImageSettingsPopoverOpen]);
+
+  useEffect(() => {
+    if (input.startsWith('/image ')) {
+      setIsImageSettingsPopoverOpen(true);
+    } else {
+      setIsImageSettingsPopoverOpen(false);
+    }
+  }, [input]);
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -143,10 +177,10 @@ export function ChatAssistant() {
         }
 
         const isAllowedMimeType = allowedTypes.includes(effectiveMimeType);
-        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.pdf');
+        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.pdf'); // Primarily for non-typed files
 
 
-        if (isAllowedMimeType || isAllowedExtension) {
+        if (isAllowedMimeType || (isAllowedExtension && !effectiveMimeType) ) { // Allow if MIME type known or extension is .md/.txt/.pdf and MIME unknown
           const reader = new FileReader();
           reader.onloadend = () => {
             if (reader.result) {
@@ -179,7 +213,7 @@ export function ChatAssistant() {
       });
     }
     if (event.target) {
-        event.target.value = ''; // Reset file input to allow re-uploading the same file
+        event.target.value = ''; 
     }
   };
 
@@ -195,18 +229,24 @@ export function ChatAssistant() {
   };
 
 
-  const handleImageGeneration = async (promptText: string) => {
+  const handleImageGeneration = async (basePrompt: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
     setCurrentStreamingMessageId(null); 
     setMessages(prev => [...prev, { 
       role: 'model', 
-      parts: [{type: 'text', text: `Sakai génère une image pour : "${promptText}"...`}], 
+      parts: [{type: 'text', text: `Sakai génère une image pour : "${basePrompt}"...`}], 
       id: imageGenPlaceholderId 
     }]);
     
+    const generationInput: GenerateImageInput = { 
+        prompt: basePrompt,
+        ...(imageStyle !== "default" && { style: imageStyle }),
+        ...(imageAspectRatio !== "default" && { aspectRatio: imageAspectRatio }), // Assuming "1:1" is default in flow if not specified
+    };
+    
     try {
-      const result = await generateImage({ prompt: promptText });
+      const result = await generateImage(generationInput);
       if (result.imageUrl) {
         setMessages(prev => prev.map(msg => 
           msg.id === imageGenPlaceholderId 
@@ -214,7 +254,7 @@ export function ChatAssistant() {
           : msg
         ));
       } else {
-        throw new Error(result.error || "La génération d'image a échoué.");
+        throw new Error(result.error || "La génération d'image a échoué ou l'URL est manquante.");
       }
     } catch (error: any) {
       console.error("Erreur de génération d'image (client):", error);
@@ -231,6 +271,8 @@ export function ChatAssistant() {
       ));
     } finally {
       setIsLoading(false);
+      setImageStyle("default");
+      setImageAspectRatio("1:1");
     }
   };
   
@@ -261,10 +303,10 @@ export function ChatAssistant() {
         if (fileWrapper.file.name.endsWith('.md')) mimeType = 'text/markdown';
         else if (fileWrapper.file.name.endsWith('.txt')) mimeType = 'text/plain';
         else if (fileWrapper.file.name.endsWith('.pdf')) mimeType = 'application/pdf';
-        else mimeType = 'application/octet-stream'; // Fallback
+        else mimeType = 'application/octet-stream'; 
       }
       newUserMessageParts.push({
-        type: 'image', // Using 'image' part type for generic media as per Gemini multimodal input
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType 
       });
@@ -428,7 +470,6 @@ export function ChatAssistant() {
       const codeBlockRegex = /```([\s\S]*?)```/g;
       let lastIndex = 0;
       const elements = [];
-      let match;
       const uniqueKeyPrefix = `${message.id}-text-${partIndex}`;
 
       while ((match = codeBlockRegex.exec(part.text)) !== null) {
@@ -471,7 +512,7 @@ export function ChatAssistant() {
       const isImageFile = part.mimeType?.startsWith('image/');
       if (isImageFile) {
         return (
-          <Image 
+          <NextImage // Use NextImage
             key={uniquePartKey}
             src={part.imageDataUri} 
             alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
@@ -481,7 +522,7 @@ export function ChatAssistant() {
             data-ai-hint="user uploaded"
           />
         );
-      } else { // For PDF, TXT, MD files
+      } else { 
         return (
           <div key={uniquePartKey} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
             <FileText className="h-6 w-6 text-primary shrink-0" />
@@ -513,13 +554,19 @@ export function ChatAssistant() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => setIsFeaturesDialogOpen(true)}>
+                 <DropdownMenuItem onClick={() => setIsFeaturesDialogOpen(true)}>
                   <Zap className="mr-2 h-4 w-4" />
                   Fonctionnalités de Sakai
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsMemoryDialogOpen(true)}>
                   <Brain className="mr-2 h-4 w-4" />
                   Panneau de Mémoire
+                </DropdownMenuItem>
+                 <DropdownMenuItem asChild>
+                  <Link href="/sakai-builder">
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Sakai Builder
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsDevCodePromptOpen(true)}>
                   <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -611,7 +658,7 @@ export function ChatAssistant() {
                     <div key={fileWrapper.id} className="relative w-full p-1.5 border border-dashed rounded-md flex items-center justify-between bg-background/50 dark:bg-muted/30 text-xs">
                       <div className="flex items-center gap-2 overflow-hidden">
                         {fileWrapper.file.type.startsWith('image/') ? (
-                          <Image src={fileWrapper.dataUri} alt={`Aperçu ${fileWrapper.file.name}`} width={24} height={24} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>
+                          <NextImage src={fileWrapper.dataUri} alt={`Aperçu ${fileWrapper.file.name}`} width={24} height={24} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>
                         ) : (
                           <FileText className="h-5 w-5 shrink-0 text-primary" />
                         )}
@@ -645,7 +692,60 @@ export function ChatAssistant() {
                 </div>
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3">
+         
+          <Popover open={isImageSettingsPopoverOpen} onOpenChange={setIsImageSettingsPopoverOpen}>
+            <PopoverTrigger asChild>
+              <div className="w-full h-0"> {/* Dummy trigger, position controlled by state */} </div>
+            </PopoverTrigger>
+            <PopoverContent className="w-[calc(100%-2rem)] sm:w-[400px] mb-1 p-4 rounded-lg shadow-xl border bg-popover" side="top" align="center" sideOffset={10}>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="image-style" className="flex items-center text-sm font-medium text-foreground">
+                    <Palette className="h-4 w-4 mr-2 text-primary" />
+                    Style Artistique
+                  </Label>
+                  <Select value={imageStyle} onValueChange={setImageStyle}>
+                    <SelectTrigger id="image-style" className="w-full bg-background">
+                      <SelectValue placeholder="Choisir un style" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {imageStyles.map(style => (
+                        <SelectItem key={style.value} value={style.value}>{style.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="flex items-center text-sm font-medium text-foreground">
+                    <Ratio className="h-4 w-4 mr-2 text-primary" />
+                    Ratio d'Aspect
+                  </Label>
+                  <RadioGroup
+                    value={imageAspectRatio}
+                    onValueChange={setImageAspectRatio}
+                    className="grid grid-cols-3 gap-2"
+                  >
+                    {imageAspectRatios.map(ratio => (
+                      <div key={ratio.value}>
+                        <RadioGroupItem value={ratio.value} id={`ratio-${ratio.value}`} className="sr-only peer" />
+                        <Label 
+                          htmlFor={`ratio-${ratio.value}`}
+                          className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-2 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer text-xs"
+                        >
+                          {/* Basic visual representation of aspect ratio */}
+                          {ratio.value === "1:1" && <div className="w-6 h-6 bg-muted-foreground/50 rounded-sm mb-1"></div>}
+                          {ratio.value === "16:9" && <div className="w-8 h-[4.5rem/2] bg-muted-foreground/50 rounded-sm mb-1"></div>}
+                          {ratio.value === "9:16" && <div className="w-[4.5rem/2] h-8 bg-muted-foreground/50 rounded-sm mb-1"></div>}
+                          {ratio.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+           <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3">
             <input 
               type="file" 
               accept="image/*,application/pdf,text/plain,.md,text/markdown" 
@@ -802,7 +902,6 @@ export function ChatAssistant() {
                 </Button>
                 <DialogClose asChild>
                     <Button type="button" variant="ghost" onClick={()=> {
-                      // Restore temp values to actual stored values if canceling
                       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
                       setTempModelTemperature(devModelTemperature ?? 0.7);
                       setIsDevSettingsOpen(false);
