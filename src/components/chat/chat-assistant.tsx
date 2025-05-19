@@ -2,14 +2,14 @@
 // src/components/chat/chat-assistant.tsx
 "use client";
 
-import { useState, useRef, useEffect, FormEvent, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent, ChangeEvent, Fragment } from 'react';
 import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle, 
-  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText
+  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,11 +41,11 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
 import { generateImage } from '@/ai/flows/generate-image-flow';
-import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { processDocument } from '@/ai/flows/process-document-flow'; // New flow
+// analyzeImage and processDocument are no longer needed here
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -64,24 +64,28 @@ const quickActions: QuickAction[] = [
   { label: "Raconte une blague", prompt: "Raconte-moi une blague.", icon: MessageSquarePlus, actionType: 'input' },
   { label: "Génère un chaton", prompt: "/image un chaton explorant une bibliothèque magique", icon: Zap, actionType: 'input' },
   { label: "Traduis 'Bonjour le monde'", prompt: "Traduis 'Bonjour le monde' en espagnol.", icon: Languages, actionType: 'input' },
-  { label: "Résume un email", prompt: "Peux-tu m'aider à résumer cet email : [coller l'email ici] ?", icon: Mail, actionType: 'input' },
-  { label: "Planifie un voyage", prompt: "Aide-moi à planifier un voyage pour [destination] pour [nombre] jours.", icon: Plane, actionType: 'input' },
-  { label: "Rédige un pitch", prompt: "J'ai besoin d'un pitch pour [produit/idée]. Peux-tu m'aider à le rédiger ?", icon: Lightbulb, actionType: 'input' },
-  { label: "Analyser une image/doc", prompt: "Décris ce fichier.", icon: Paperclip, actionType: 'input' },
+  { label: "Résume cet email: [coller ici]", prompt: "Peux-tu m'aider à résumer cet email : ", icon: Mail, actionType: 'input' },
+  { label: "Planifie un voyage pour...", prompt: "Aide-moi à planifier un voyage pour [destination] pour [nombre] jours.", icon: Plane, actionType: 'input' },
+  { label: "Rédige un pitch pour...", prompt: "J'ai besoin d'un pitch pour [produit/idée]. Peux-tu m'aider à le rédiger ?", icon: Lightbulb, actionType: 'input' },
+  { label: "Analyser une image/doc", prompt: "Décris le(s) fichier(s) que j'ai téléversé(s).", icon: Paperclip, actionType: 'input' },
   { label: "Donne un fait amusant", prompt: "Donne-moi un fait amusant.", icon: HelpCircle, actionType: 'input' },
 ];
 
 const DEV_ACCESS_CODE = "1234566";
 
+interface UploadedFileWrapper {
+  dataUri: string;
+  file: File;
+  id: string;
+}
+
 export function ChatAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [isProcessingFile, setIsProcessingFile] = useState(false); // Covers image and document analysis
+  const [isLoading, setIsLoading] = useState(false); // General loading for chat and file processing
   const [userMemory, setUserMemory] = useLocalStorage<string>('sakaiUserMemory', '');
   const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<{ dataUri: string; file: File } | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileWrapper[]>([]);
   
   const [isFeaturesDialogOpen, setIsFeaturesDialogOpen] = useState(false);
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
@@ -110,13 +114,13 @@ export function ChatAssistant() {
     }
   };
 
-  useEffect(scrollToBottom, [messages, isLoading, isGeneratingImage, isProcessingFile]);
+  useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isLoading && !isGeneratingImage && !isProcessingFile) { 
+    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isLoading ) { 
       inputRef.current.focus();
     }
-  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isGeneratingImage, isProcessingFile]); 
+  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen]); 
 
    useEffect(() => {
     if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen) {
@@ -125,35 +129,48 @@ export function ChatAssistant() {
   }, [isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen]);
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
+    const files = event.target.files;
+    if (files) {
       const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'text/plain', 'text/markdown'];
-      if (allowedTypes.includes(file.type) || file.name.endsWith('.md')) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setUploadedFile({ dataUri: reader.result as string, file });
-        };
-        reader.readAsDataURL(file);
-      } else {
-        toast({
-          title: "Type de fichier non supporté",
-          description: "Veuillez sélectionner une image (PNG, JPG, WEBP), un PDF, ou un fichier texte (.txt, .md).",
-          variant: "destructive",
-        });
-      }
+      const newFiles: UploadedFileWrapper[] = [];
+      
+      Array.from(files).forEach(file => {
+        if (allowedTypes.includes(file.type) || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            newFiles.push({ dataUri: reader.result as string, file, id: `file-${Date.now()}-${Math.random()}` });
+            // Check if all files are processed
+            if (newFiles.length === Array.from(files).filter(f => allowedTypes.includes(f.type) || f.name.endsWith('.md')|| f.name.endsWith('.txt')).length) {
+               setUploadedFiles(prev => [...prev, ...newFiles]);
+            }
+          };
+          reader.readAsDataURL(file);
+        } else {
+          toast({
+            title: "Type de fichier non supporté",
+            description: `Le fichier "${file.name}" n'est pas supporté. Veuillez sélectionner une image (PNG, JPG, WEBP), un PDF, ou un fichier texte (.txt, .md).`,
+            variant: "destructive",
+          });
+        }
+      });
     }
     event.target.value = ''; 
   };
 
-  const clearUploadedFile = () => {
-    setUploadedFile(null);
+  const removeUploadedFile = (fileIdToRemove: string) => {
+    setUploadedFiles(prev => prev.filter(fileWrapper => fileWrapper.id !== fileIdToRemove));
+  };
+  
+  const clearAllUploadedFiles = () => {
+    setUploadedFiles([]);
     if (fileInputRef.current) {
-      fileInputRef.current.value = ''; 
+      fileInputRef.current.value = '';
     }
   };
 
+
   const handleImageGeneration = async (promptText: string) => {
-    setIsGeneratingImage(true);
+    setIsLoading(true); // Use general isLoading
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
     setMessages(prev => [...prev, { 
       role: 'model', 
@@ -186,67 +203,7 @@ export function ChatAssistant() {
         : msg
       ));
     } finally {
-      setIsGeneratingImage(false);
-    }
-  };
-
-  const handleFileAnalysis = async (promptText: string, fileData: { dataUri: string; file: File }, analysisType: 'image' | 'document') => {
-    setIsProcessingFile(true);
-    const analysisPlaceholderId = `${analysisType}-analysis-${Date.now()}`;
-
-    const userMessageParts: ChatMessagePart[] = [];
-    if (analysisType === 'image') {
-      userMessageParts.push({ type: 'image', imageDataUri: fileData.dataUri, mimeType: fileData.file.type });
-    } else {
-      // For documents, we just note it in text for now. The actual file goes to the flow.
-      userMessageParts.push({ type: 'text', text: `Fichier téléversé : ${fileData.file.name}` });
-    }
-     if (promptText) {
-        userMessageParts.push({ type: 'text', text: promptText });
-    }
-    
-    const newUserMessage: ChatMessage = { role: 'user', parts: userMessageParts, id: `user-file-${Date.now()}` };
-    setMessages(prev => [...prev, newUserMessage]);
-    clearUploadedFile(); 
-
-    setMessages(prev => [...prev, { 
-      role: 'model', 
-      parts: [{type: 'text', text: `Sakai analyse votre ${analysisType === 'image' ? 'image' : 'document'}...`}], 
-      id: analysisPlaceholderId 
-    }]);
-    
-    try {
-      let result;
-      if (analysisType === 'image') {
-        result = await analyzeImage({ prompt: promptText, imageDataUri: fileData.dataUri, mimeType: fileData.file.type });
-      } else {
-        result = await processDocument({ prompt: promptText, documentDataUri: fileData.dataUri, mimeType: fileData.file.type });
-      }
-
-      if (result.analysis) {
-        setMessages(prev => prev.map(msg => 
-          msg.id === analysisPlaceholderId 
-          ? {...msg, parts: [{type: 'text', text: result.analysis}]}
-          : msg
-        ));
-      } else {
-        throw new Error(result.error || `L'analyse de ${analysisType === 'image' ? 'l\'image' : 'du document'} a échoué.`);
-      }
-    } catch (error: any) {
-      console.error(`Erreur d'analyse de ${analysisType} (client):`, error);
-      const errorMessage = error?.message || `Désolé, une erreur est survenue lors de l'analyse de ${analysisType === 'image' ? 'l\'image' : 'du document'}.`;
-      toast({
-        title: `Erreur d'analyse de ${analysisType}`,
-        description: errorMessage,
-        variant: "destructive",
-      });
-       setMessages(prev => prev.map(msg => 
-        msg.id === analysisPlaceholderId 
-        ? {...msg, parts: [{type: 'text', text: `Erreur : ${errorMessage}`}]}
-        : msg
-      ));
-    } finally {
-      setIsProcessingFile(false);
+      setIsLoading(false);
     }
   };
   
@@ -254,36 +211,44 @@ export function ChatAssistant() {
     if (typeof e === 'object' && e?.preventDefault) e.preventDefault();
     
     const currentInput = (typeof e === 'string' ? e : input).trim();
-    if ((!currentInput && !uploadedFile) || isLoading || isGeneratingImage || isProcessingFile) return;
+    if ((!currentInput && uploadedFiles.length === 0) || isLoading) return;
 
-    if (uploadedFile) {
-      const fileType = uploadedFile.file.type;
-      if (fileType.startsWith('image/')) {
-        await handleFileAnalysis(currentInput || "Décris cette image.", uploadedFile, 'image');
-      } else if (['application/pdf', 'text/plain', 'text/markdown'].includes(fileType) || uploadedFile.file.name.endsWith('.md')) {
-        await handleFileAnalysis(currentInput || `Analyse ce document et donne-moi un résumé.`, uploadedFile, 'document');
-      }
-      if (typeof e !== 'string') setInput('');
-      return;
-    }
-
-    const newUserMessageParts: ChatMessagePart[] = [{ type: 'text', text: currentInput }];
-    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}` };
-    
-    setMessages(prev => [...prev, newUserMessage]);
-    if (typeof e !== 'string') {
-      setInput('');
-    }
-
-    if (currentInput.toLowerCase().startsWith('/image ')) {
+    // Handle /image command separately first
+    if (currentInput.toLowerCase().startsWith('/image ') && uploadedFiles.length === 0) {
       const imagePrompt = currentInput.substring(7).trim();
       if (imagePrompt) {
+        // Add user message for the command
+        const newUserMessage: ChatMessage = { role: 'user', parts: [{type: 'text', text: currentInput}], id: `user-${Date.now()}` };
+        setMessages(prev => [...prev, newUserMessage]);
+        if (typeof e !== 'string') setInput('');
         await handleImageGeneration(imagePrompt);
       } else {
         setMessages(prev => [...prev, { role: 'model', parts: [{type: 'text', text: "Veuillez fournir une description pour l'image après la commande /image."}], id: `model-${Date.now()}` }]);
       }
       return;
     }
+    
+    const newUserMessageParts: ChatMessagePart[] = [];
+
+    uploadedFiles.forEach(fileWrapper => {
+      newUserMessageParts.push({
+        type: 'image', // Gemini treats various media as 'image' type if dataUri and mimeType are provided
+        imageDataUri: fileWrapper.dataUri,
+        mimeType: fileWrapper.file.type || (fileWrapper.file.name.endsWith('.md') ? 'text/markdown' : 'text/plain')
+      });
+    });
+
+    if (currentInput) {
+      newUserMessageParts.push({ type: 'text', text: currentInput });
+    }
+    
+    if (newUserMessageParts.length === 0) return; // Should not happen if first check passes
+
+    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}` };
+    
+    setMessages(prev => [...prev, newUserMessage]);
+    if (typeof e !== 'string') setInput('');
+    clearAllUploadedFiles();
     
     setIsLoading(true);
     const assistantMessageId = `model-${Date.now()}`;
@@ -348,14 +313,14 @@ export function ChatAssistant() {
   const handleQuickAction = (action: QuickAction) => {
     if (action.actionType === 'input') {
       if (action.label === "Analyser une image/doc") {
-         if (uploadedFile) {
+         if (uploadedFiles.length > 0) {
            setInput(action.prompt);
          } else {
            fileInputRef.current?.click(); 
            setInput(action.prompt); 
          }
-      } else if (action.prompt.startsWith("/image") && uploadedFile) {
-        setInput(uploadedFile.file.type.startsWith('image/') ? "Décris cette image." : "Analyse ce document."); 
+      } else if (action.prompt.startsWith("/image") && uploadedFiles.length > 0) {
+        setInput("Décris cette image."); 
       }
       else {
         setInput(action.prompt);
@@ -382,7 +347,7 @@ export function ChatAssistant() {
       toast({
         title: "Accès Développeur Accordé",
         description: "Vous pouvez maintenant modifier les paramètres du modèle.",
-        variant: "default",
+        variant: "default", // Changed from undefined to default
         icon: <CheckCircle className="h-5 w-5 text-green-500" />,
       });
     } else {
@@ -421,6 +386,73 @@ export function ChatAssistant() {
     setTempOverrideSystemPrompt(devOverrideSystemPrompt);
     setTempModelTemperature(devModelTemperature ?? 0.7);
   }, [devOverrideSystemPrompt, devModelTemperature]);
+
+  const renderMessagePart = (part: ChatMessagePart, partIndex: number) => {
+    if (part.type === 'text') {
+      // Check for code blocks
+      const codeBlockRegex = /```([\s\S]*?)```/g;
+      let lastIndex = 0;
+      const elements = [];
+      let match;
+
+      while ((match = codeBlockRegex.exec(part.text)) !== null) {
+        // Add text before the code block
+        if (match.index > lastIndex) {
+          elements.push(
+            <span key={`text-${partIndex}-${lastIndex}`}>
+              {part.text.substring(lastIndex, match.index)}
+            </span>
+          );
+        }
+        // Add the code block
+        elements.push(
+          <pre key={`code-${partIndex}-${match.index}`}>
+            <code>{match[1].trim()}</code>
+          </pre>
+        );
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add any remaining text after the last code block
+      if (lastIndex < part.text.length) {
+        elements.push(
+          <span key={`text-${partIndex}-${lastIndex}`}>
+            {part.text.substring(lastIndex)}
+          </span>
+        );
+      }
+      
+      if (elements.length > 0) {
+        return <div className="text-sm whitespace-pre-wrap leading-relaxed">{elements.map((el, i) => <Fragment key={i}>{el}</Fragment>)}</div>;
+      }
+      return <p key={partIndex} className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
+
+    }
+    if (part.type === 'image' && part.imageDataUri) {
+      const isImageFile = part.mimeType?.startsWith('image/');
+      if (isImageFile) {
+        return (
+          <Image 
+            key={partIndex}
+            src={part.imageDataUri} 
+            alt={part.mimeType === 'user' ? "Fichier de l'utilisateur" : "Média"}
+            width={300} 
+            height={300} 
+            className="rounded-lg object-contain max-w-full h-auto border border-border/50"
+            data-ai-hint="user uploaded"
+          />
+        );
+      } else { // For non-image files like PDF, text
+        return (
+          <div key={partIndex} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
+            <FileText className="h-6 w-6 text-primary shrink-0" />
+            <span className="text-xs text-muted-foreground truncate">Fichier: {part.mimeType || 'document'}</span>
+          </div>
+        );
+      }
+    }
+    return null;
+  };
 
 
   return (
@@ -467,20 +499,19 @@ export function ChatAssistant() {
         <CardContent className="flex-1 p-0 overflow-hidden">
           <ScrollArea ref={scrollAreaRef} className="h-full bg-background/30 dark:bg-background/50">
             <div className="p-4 sm:p-6 space-y-6">
-              {messages.length === 0 && !isLoading && !isGeneratingImage && !isProcessingFile && (
+              {messages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-6">
                   <SakaiLogo className="h-28 w-28 text-primary opacity-80" />
                   <p className="text-3xl font-medium">Bonjour ! Je suis Sakai, votre assistant IA avancé.</p>
                   <p className="text-lg max-w-md">
-                    Prêt à explorer ? Essayez une action rapide, posez une question, ou <label htmlFor="file-upload-button" className="text-primary hover:underline cursor-pointer font-medium">téléchargez un fichier</label> à analyser. Vous pouvez aussi configurer ma <Button variant="link" className="p-0 h-auto text-lg text-primary" onClick={() => setIsMemoryDialogOpen(true)}>mémoire</Button>.
+                    Prêt à explorer ? Essayez une action rapide, posez une question, ou <label htmlFor="file-upload-button" className="text-primary hover:underline cursor-pointer font-medium">téléchargez un ou plusieurs fichiers</label> (images, PDF, TXT, MD). Vous pouvez aussi configurer ma <Button variant="link" className="p-0 h-auto text-lg text-primary" onClick={() => setIsMemoryDialogOpen(true)}>mémoire</Button>.
                   </p>
                 </div>
               )}
               {messages.map((msg) => {
                 const isUser = msg.role === 'user';
-                const isLoadingMessage = (isLoading && msg.role === 'model' && msg.id?.startsWith('model-') && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '' && !isGeneratingImage && !isProcessingFile);
-                const isImageGenPlaceholder = isGeneratingImage && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
-                const isFileProcessingPlaceholder = isProcessingFile && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith("Sakai analyse votre");
+                const isLoadingMessage = isLoading && msg.role === 'model' && msg.id?.startsWith('model-') && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
+                const isImageGenPlaceholder = isLoading && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
                 
                 return (
                   <div
@@ -497,36 +528,18 @@ export function ChatAssistant() {
                        isUser 
                          ? 'bg-primary text-primary-foreground rounded-br-none' 
                          : 'bg-card border text-card-foreground rounded-bl-none',
-                        msg.parts.some(p => p.type === 'image') && !isLoadingMessage && !isImageGenPlaceholder && !isFileProcessingPlaceholder && "p-1.5 bg-transparent shadow-none border-none dark:bg-transparent" 
+                        msg.parts.some(p => p.type === 'image' && p.mimeType?.startsWith('image/')) && !isLoadingMessage && !isImageGenPlaceholder && "p-1.5 bg-transparent shadow-none border-none dark:bg-transparent" 
                     )}>
-                      {isLoadingMessage || isImageGenPlaceholder || isFileProcessingPlaceholder ? (
+                      {isLoadingMessage || isImageGenPlaceholder ? (
                         <div className="flex items-center gap-2 p-2">
                           <Loader2 className="h-5 w-5 animate-spin text-primary" /> 
                           <span className="text-sm text-muted-foreground">
-                            {isImageGenPlaceholder ? "Génération d'image..." : isFileProcessingPlaceholder ? "Analyse du fichier..." : "Sakai réfléchit..."}
+                            {isImageGenPlaceholder ? "Génération d'image..." : "Sakai réfléchit..."}
                           </span>
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {msg.parts.map((part, partIndex) => {
-                            if (part.type === 'text' && part.text.trim() !== '') {
-                              return <p key={partIndex} className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
-                            }
-                            if (part.type === 'image' && part.imageDataUri) {
-                              return (
-                                <Image 
-                                  key={partIndex}
-                                  src={part.imageDataUri} 
-                                  alt={isUser ? "Image envoyée par l'utilisateur" : "Image générée par Sakai"}
-                                  width={300} 
-                                  height={300} 
-                                  className="rounded-lg object-contain max-w-full h-auto border border-border/50"
-                                  data-ai-hint={isUser ? "user uploaded" : "generated art"}
-                                />
-                              );
-                            }
-                            return null;
-                          })}
+                          {msg.parts.map(renderMessagePart)}
                         </div>
                       )}
                     </div>
@@ -538,22 +551,36 @@ export function ChatAssistant() {
         </CardContent>
 
         <CardFooter className="p-4 border-t bg-card shrink-0 flex flex-col gap-3">
-          {uploadedFile && (
-            <div className="relative w-full p-2 border border-dashed rounded-md mb-2 flex items-center justify-between bg-background/50 dark:bg-muted/30">
-              <div className="flex items-center gap-2 overflow-hidden">
-                {uploadedFile.file.type.startsWith('image/') ? (
-                  <Image src={uploadedFile.dataUri} alt="Aperçu de l'image" width={40} height={40} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>
-                ) : (
-                  <FileText className="h-8 w-8 shrink-0 text-primary" />
-                )}
-                <span className="text-xs text-muted-foreground truncate">{uploadedFile.file.name} ({ (uploadedFile.file.size / 1024).toFixed(1) } KB)</span>
+          {uploadedFiles.length > 0 && (
+            <div className="w-full mb-2 space-y-2">
+              <div className="flex justify-between items-center">
+                <p className="text-xs text-muted-foreground font-medium">Fichiers téléversés :</p>
+                <Button variant="ghost" size="sm" onClick={clearAllUploadedFiles} className="text-xs text-destructive hover:text-destructive/80 h-auto py-1">
+                  <Trash2 className="h-3 w-3 mr-1" /> Tout effacer
+                </Button>
               </div>
-              <Button variant="ghost" size="icon" onClick={clearUploadedFile} className="text-destructive hover:text-destructive/80 h-7 w-7 shrink-0">
-                <XCircle className="h-4 w-4" />
-              </Button>
+              <ScrollArea className="max-h-28"> {/* Limit height for many files */}
+                <div className="space-y-1 pr-2">
+                  {uploadedFiles.map((fileWrapper) => (
+                    <div key={fileWrapper.id} className="relative w-full p-1.5 border border-dashed rounded-md flex items-center justify-between bg-background/50 dark:bg-muted/30 text-xs">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        {fileWrapper.file.type.startsWith('image/') ? (
+                          <Image src={fileWrapper.dataUri} alt="Aperçu" width={24} height={24} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>
+                        ) : (
+                          <FileText className="h-5 w-5 shrink-0 text-primary" />
+                        )}
+                        <span className="text-muted-foreground truncate">{fileWrapper.file.name} ({(fileWrapper.file.size / 1024).toFixed(1)} KB)</span>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => removeUploadedFile(fileWrapper.id)} className="text-destructive hover:text-destructive/80 h-6 w-6 shrink-0">
+                        <XCircle className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
           )}
-          {(messages.length === 0 && !uploadedFile) && (
+          {(messages.length === 0 && uploadedFiles.length === 0) && (
              <div className="w-full mb-2">
                 <p className="text-xs text-muted-foreground mb-2 text-center font-medium">Suggestions :</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -580,6 +607,7 @@ export function ChatAssistant() {
               onChange={handleFileUpload} 
               className="hidden" 
               id="file-upload-button"
+              multiple // Allow multiple files
             />
             <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-11 w-11 rounded-lg">
                 <Paperclip className="h-5 w-5" />
@@ -587,17 +615,17 @@ export function ChatAssistant() {
             <Input
               ref={inputRef}
               type="text"
-              placeholder={uploadedFile ? "Ajouter un commentaire sur le fichier..." : "Envoyer un message à Sakai..."}
+              placeholder={uploadedFiles.length > 0 ? "Ajouter un commentaire sur le(s) fichier(s)..." : "Envoyer un message à Sakai..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading || isGeneratingImage || isProcessingFile}
+              disabled={isLoading}
               className="flex-1 py-3 px-4 text-sm rounded-lg bg-background focus-visible:ring-primary/50 h-11" 
             />
             <Button variant="outline" size="icon" type="button" aria-label="Saisie vocale (Bientôt disponible)" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-11 w-11 rounded-lg" disabled>
                 <Mic className="h-5 w-5" />
             </Button>
-            <Button type="submit" size="icon" disabled={isLoading || isGeneratingImage || isProcessingFile || (!input.trim() && !uploadedFile)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-11 w-11 rounded-lg shrink-0">
-              {(isLoading || isGeneratingImage || isProcessingFile) ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-11 w-11 rounded-lg shrink-0">
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
           </form>
         </CardFooter>
@@ -623,8 +651,7 @@ export function ChatAssistant() {
                 <li>Générer du texte créatif (emails, poèmes, scripts).</li>
                 <li>Raconter des blagues et des histoires captivantes.</li>
                 <li>Générer des images à partir de vos descriptions (commande `/image ...`).</li>
-                <li>Analyser le contenu des images que vous téléchargez.</li>
-                <li>Analyser des documents texte (.txt, .md) et PDF que vous téléchargez.</li>
+                <li>Analyser le contenu des images, PDF, et fichiers texte que vous téléchargez.</li>
                 <li>Traduire du texte dans différentes langues.</li>
                 <li>Agir comme un partenaire de brainstorming et de réflexion.</li>
                 <li>Se souvenir de vos préférences grâce au Panneau de Mémoire.</li>
@@ -646,7 +673,7 @@ export function ChatAssistant() {
             <AlertDialogDescription className="text-left">
               <p className="mb-2">Sakai est votre assistant IA personnel, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle (via Genkit et les modèles Gemini de Google) pour vous offrir une expérience interactive et enrichissante.</p>
-              <p>Version: 1.1.0 (Prototype avec analyse de documents)</p>
+              <p>Version: 1.2.0 (Prototype avec analyse multi-fichiers)</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

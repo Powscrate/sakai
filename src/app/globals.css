@@ -96,3 +96,28 @@ body {
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Styles for code blocks */
+pre {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  padding: 1rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace; /* Using generic monospace fonts */
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.6; /* Adjusted for better readability */
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  white-space: pre; /* Ensures whitespace is preserved, works with pre-wrap on child for wrapping */
+}
+
+pre code {
+  font-family: inherit;
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  white-space: pre-wrap; /* Allow wrapping within the code block */
+  word-break: break-all; /* Break long words/strings if necessary to prevent overflow */
+}

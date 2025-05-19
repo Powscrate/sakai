@@ -4,6 +4,6 @@ config();
 
 import '@/ai/flows/chat-assistant-flow.ts';
 import '@/ai/flows/generate-image-flow.ts';
-import '@/ai/flows/analyze-image-flow.ts';
-import '@/ai/flows/process-document-flow.ts'; // Ajout du nouveau flux
+// analyze-image-flow.ts and process-document-flow.ts are no longer imported
+// as their functionality is now part of chat-assistant-flow.ts
 
