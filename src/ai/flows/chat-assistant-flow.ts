@@ -8,7 +8,7 @@
  * - ChatMessage - Type pour un message de chat individuel.
  */
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z}from 'genkit';
 import type {GenerateResult, MessageData, Part, GenerateStreamResponseData} from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -25,13 +25,9 @@ const ChatAssistantInputSchema = z.object({
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
-// Define the expected chunk structure for the callback, matching ai.generateStream's output
-// GenerateStreamResponseData already includes { text?: string; ... }
-// type ChatStreamChunk = GenerateStreamResponseData; // More complete type
-export type ChatStreamChunk = { // Simpler type, focusing on text, which is what the UI uses
+export type ChatStreamChunk = {
   text?: string;
   // Other fields from GenerateStreamResponseData could be added if needed by the client
-  // e.g., error?: string; finishReason?: string;
 };
 
 
@@ -40,24 +36,29 @@ export async function streamChatAssistant(
   onChunk: (chunk: ChatStreamChunk) => void | Promise<void>
 ): Promise<GenerateResult | undefined> {
 
-  const systemMessage: ChatMessage = {
-    role: 'system',
-    parts: `Vous êtes un assistant IA convivial et serviable pour l'application "Perspectives de Vie".
+  const systemInstructionText = `Vous êtes un assistant IA convivial et serviable pour l'application "Perspectives de Vie".
     Votre rôle est d'aider les utilisateurs à comprendre leurs données (métriques de santé et bien-être comme l'exercice, le sommeil, l'humeur, l'eau consommée), à fixer des objectifs, à analyser les tendances et à fournir des conseils généraux sur le bien-être.
     Répondez toujours en FRANÇAIS.
     Soyez concis mais informatif.
     Si vous ne connaissez pas la réponse ou si la question sort du cadre de l'application (suivi de métriques de vie, objectifs, tendances, bien-être général), dites-le poliment.
-    La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}.`
-  };
+    La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}.`;
 
-  const messagesForApi: MessageData[] = [systemMessage, ...input.history].map(msg => ({
-    role: msg.role,
-    content: [{text: msg.parts}] as Part[],
-  }));
+  // Filter out any 'system' messages from history and ensure roles are correctly typed for the API.
+  // The client should only send 'user' and 'model' roles in history.
+  const messagesForApi: MessageData[] = input.history
+    .filter(msg => msg.role === 'user' || msg.role === 'model') 
+    .map(msg => ({
+      role: msg.role as 'user' | 'model', 
+      content: [{text: msg.parts}] as Part[],
+    }));
 
   const {stream, response} = ai.generateStream({
-    model: 'googleai/gemini-pro', // Explicitly using gemini-pro for diagnostics
-    messages: messagesForApi,
+    model: 'googleai/gemini-pro',
+    systemInstruction: { // Use the dedicated systemInstruction field
+      parts: [{ text: systemInstructionText }],
+      // role: 'system' // This 'role' for systemInstruction is often implicit if parts are provided.
+    },
+    messages: messagesForApi, // Now only contains user/model messages from history
     config: {
       temperature: 0.7,
        safetySettings: [
@@ -79,7 +80,9 @@ export async function streamChatAssistant(
         },
       ]
     },
-    streamingCallback: onChunk as (chunk: GenerateStreamResponseData) => void | Promise<void>, // Cast to satisfy the expected type
+    // The type for onChunk here should match what generateStream's streamingCallback expects.
+    // GenerateStreamResponseData is the more accurate type for the chunk.
+    streamingCallback: onChunk as (chunk: GenerateStreamResponseData) => void | Promise<void>, 
   });
 
   for await (const _ of stream) {
