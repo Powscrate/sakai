@@ -35,23 +35,27 @@ export async function generateProjectFiles(input: GenerateProjectInput): Promise
 const projectGenerationPrompt = ai.definePrompt({
   name: 'generateProjectPrompt',
   input: { schema: GenerateProjectInputSchema },
-  output: { 
-    schema: z.object({ 
+  output: {
+    schema: z.object({
       projectFilesJson: z.string().describe(
         "A JSON string representing an object where keys are full file paths (e.g., '/src/App.tsx', '/package.json') and values are the file content. " +
+        "IMPORTANT: All string values within this JSON, especially file contents, MUST be properly escaped for JSON compatibility. " +
+        "This means newlines (\\n) MUST be represented as \\\\n, backslashes (\\) as \\\\\\\\, and double quotes (\") within string literals as \\\\\". " + // Escaped for the prompt string itself
         "Ensure all necessary configuration files are included for a runnable Vite + React TS + Tailwind project, including: " +
-        "package.json (with react, react-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer, and dev/build scripts), " +
+        "package.json (with a unique 'name' property, react, react-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer, and dev/build scripts), " +
         "vite.config.ts, tailwind.config.js, postcss.config.js, index.html (root), src/main.tsx (React entry point), src/index.css (Tailwind directives), and src/App.tsx."
-      ) 
-    }) 
+      )
+    })
   },
   system: `You are an expert React project generator. Based on the user's prompt, generate a complete set of files for a simple React TypeScript project using Vite as the build tool and Tailwind CSS for styling.
-The output MUST be a single JSON string. This JSON string should represent an object where:
+The output MUST be a single, valid JSON string. This JSON string should represent an object where:
 - Keys are the full file paths starting with a forward slash (e.g., '/src/App.tsx', '/package.json', '/tailwind.config.js', '/vite.config.ts', '/index.html', '/src/main.tsx', '/src/index.css', '/postcss.config.js').
 - Values are the string content of these files.
 
+CRITICAL FOR VALID JSON: Within the file content strings, all special characters MUST be escaped. Newlines should be \\\\n, double quotes should be \\\\", and backslashes should be \\\\\\\\.
+
 Ensure the generated project is runnable. Include:
-1.  package.json with react, react-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer as dependencies/devDependencies. Include basic scripts like "dev": "vite", "build": "vite build".
+1.  package.json with a unique "name" property (e.g., "ai-generated-app"), and dependencies/devDependencies: react, react-dom, vite, @vitejs/plugin-react, typescript, tailwindcss, postcss, autoprefixer. Include basic scripts: "dev": "vite", "build": "vite build".
 2.  vite.config.ts configured for React and TypeScript (import react from '@vitejs/plugin-react'; export default { plugins: [react()] };).
 3.  tailwind.config.js with basic setup (e.g., content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"], theme: { extend: {} }, plugins: []).
 4.  postcss.config.js with tailwindcss and autoprefixer plugins (module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };).
@@ -63,11 +67,12 @@ Ensure the generated project is runnable. Include:
 
 The project should be as simple as possible while being functional and demonstrating the core request.
 All file paths must start with a '/'.
+Do NOT include any comments or explanations outside of the JSON string itself. The entire response must be ONLY the JSON string.
 `,
   prompt: `User's project request: {{{userInputPrompt}}}`,
   config: {
-    temperature: 0.3, // Lower temperature for more predictable, structured output
-    safetySettings: [ // Relax safety settings slightly if it blocks valid code often
+    temperature: 0.2, // Lower temperature for more predictable, structured output
+    safetySettings: [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -89,16 +94,17 @@ const generateProjectFlow = ai.defineFlow(
         try {
           const filesObject = JSON.parse(output.projectFilesJson);
           // Validate if filesObject is a record of strings
-                          if (typeof filesObject === 'object' && filesObject !== null && 
-                              Object.values(filesObject).every(value => typeof value === 'string')) {
+          if (typeof filesObject === 'object' && filesObject !== null &&
+              Object.values(filesObject).every(value => typeof value === 'string') &&
+              Object.keys(filesObject).every(key => typeof key === 'string' && key.startsWith('/'))) {
             return { files: filesObject as ProjectFiles };
           } else {
-            console.error('Parsed JSON is not in the expected ProjectFiles format:', filesObject);
-            return { error: 'AI returned data in an unexpected format. Parsed JSON is not a record of strings.' };
+            console.error('Parsed JSON is not in the expected ProjectFiles format (keys must be strings starting with "/" and values must be strings):', filesObject);
+            return { error: 'AI returned data in an unexpected format. Parsed JSON is not a record of strings with valid paths.' };
           }
         } catch (parseError: any) {
-          console.error('Failed to parse JSON output from AI:', parseError, "\nAI Output was:\n", output.projectFilesJson);
-          return { error: `Failed to parse AI's response as JSON. Error: ${parseError.message}` };
+          console.error('Failed to parse JSON output from AI. Raw AI output was:\n', output.projectFilesJson, '\nParse error:', parseError);
+          return { error: `Failed to parse AI's response as JSON. Error: ${parseError.message}. Check server console for AI output.` };
         }
       } else {
         return { error: "AI did not return the expected projectFilesJson output." };

@@ -9,7 +9,8 @@ import {
   type SandpackThemeProp,
 } from '@codesandbox/sandpack-react';
 import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface CodePreviewProps {
   files: SandpackFiles | null;
@@ -80,72 +81,104 @@ const darkTheme: SandpackThemeProp = {
 
 export function CodePreview({ files }: CodePreviewProps) {
   const { theme: activeTheme } = useTheme();
-  const [sandpackKey, setSandpackKey] = useState(0); // Key to force re-render
+  // Key to force re-render SandpackProvider when files change.
+  // Using JSON.stringify of file keys as part of the key can help ensure re-initialization
+  // if the file structure changes significantly, not just content.
+  const sandpackKey = useMemo(() => {
+    if (!files) return 'initial';
+    return `sandpack-${Object.keys(files).sort().join('-')}`;
+  }, [files]);
+
+  const [isSandpackLoading, setIsSandpackLoading] = useState(true);
 
   useEffect(() => {
-    // Increment key whenever files change to force Sandpack to re-initialize
     if (files) {
-      setSandpackKey(prevKey => prevKey + 1);
+      setIsSandpackLoading(true); // Set loading to true when new files are provided
+      // Sandpack doesn't have a direct "onReady" or "onLoadFinished" event for the whole environment.
+      // We can use a timeout as a proxy for when the initial setup might be done.
+      // This is not foolproof but can help manage a loading indicator.
+      const timer = setTimeout(() => {
+        setIsSandpackLoading(false);
+      }, 3000); // Adjust timeout as needed, 3s is a guess
+      return () => clearTimeout(timer);
+    } else {
+      setIsSandpackLoading(false);
     }
-  }, [files]);
+  }, [files, sandpackKey]); // Depend on sandpackKey too
 
   if (!files) {
     return (
-      <div className="flex items-center justify-center h-full bg-muted/30 p-4 text-center text-muted-foreground">
-        <p>L'aperçu du code apparaîtra ici une fois le projet généré.</p>
+      <div className="flex flex-col items-center justify-center h-full bg-muted/20 p-6 text-center text-muted-foreground">
+         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="currentColor" className="h-20 w-20 text-primary/50 mb-6 opacity-50">
+            <circle cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="5" fill="none" />
+            <circle cx="50" cy="50" r="15" fill="currentColor" />
+            <path d="M50 30 A20 20 0 0 1 50 70 A20 20 0 0 1 50 30 M50 40 A10 10 0 0 0 50 60 A10 10 0 0 0 50 40" fill="hsl(var(--muted))" />
+          </svg>
+        <p className="text-lg font-medium">Aperçu du projet et de l'éditeur de code</p>
+        <p className="text-sm">Le code généré par Sakai apparaîtra ici une fois que vous aurez soumis une description.</p>
       </div>
     );
   }
   
-  // Determine the entry point. Sandpack usually needs an `index.html` for Vite.
-  // The default react-ts template might assume /src/index.tsx or /src/main.tsx via /index.html
-  // If a package.json specifies a 'main' or 'module', or if index.html points to an entry.
-  // For Vite, it's usually index.html at the root.
   const entryFilePath = files['/index.html'] ? '/index.html' : undefined;
+  const activeFile = files['/src/App.tsx']?.active 
+    ? '/src/App.tsx' 
+    : (Object.keys(files).find(f => f.endsWith('.tsx') && !files[f].hidden && files[f].code.length > 0) || '/src/main.tsx');
 
 
   return (
-    <SandpackProvider
-      key={sandpackKey} // Force re-mount when files change
-      template="vite" // Use Vite template
-      files={files}
-      theme={activeTheme === 'dark' ? darkTheme : lightTheme}
-      options={{
-        showConsole: true,
-        showConsoleButton: true,
-        showTabs: true,
-        showLineNumbers: true,
-        closableTabs: true,
-        visibleFiles: Object.keys(files).filter(f => !files[f].hidden && !f.endsWith('config.js') && !f.endsWith('json') && f !== '/index.html' && !f.endsWith('.css')),
-        activeFile: files['/src/App.tsx'] ? '/src/App.tsx' : (Object.keys(files).find(f => f.endsWith('.tsx') && !files[f].hidden) || '/src/main.tsx'),
-        bundlerURL: "https://sandpack-bundler.codesandbox.io", // Default, ensure it's accessible
-        // entry: entryFilePath, // Vite template usually infers from index.html
-        // customSetup: { // Vite template usually handles this if package.json is correct
-        //   dependencies: {
-        //     "react": "latest",
-        //     "react-dom": "latest",
-        //     "tailwindcss": "latest", 
-        //      // Vite should be listed in package.json devDependencies
-        //   },
-        // },
-      }}
-      
-    >
-      <SandpackLayout className="h-full w-full">
-        <SandpackCodeEditor 
-            showTabs 
-            showLineNumbers 
-            showInlineErrors
-            wrapContent 
-            style={{ height: '100%', flexGrow: 1, flexShrink: 1, minHeight: 0 }}
-        />
-        <SandpackPreview 
-            showSandpackErrorOverlay 
-            showOpenInCodeSandbox={false}
-            style={{ height: '100%', flexGrow: 1, flexShrink: 1, minHeight: 0 }}
-        />
-      </SandpackLayout>
-    </SandpackProvider>
+    <div className="relative h-full w-full">
+      {isSandpackLoading && files && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center text-foreground">
+            <Loader2 className="h-10 w-10 animate-spin text-primary mb-3" />
+            <p className="font-semibold">Préparation de l'aperçu...</p>
+            <p className="text-xs text-muted-foreground">Cela peut prendre quelques instants.</p>
+          </div>
+        </div>
+      )}
+      <SandpackProvider
+        key={sandpackKey}
+        template="vite"
+        files={files}
+        theme={activeTheme === 'dark' ? darkTheme : lightTheme}
+        options={{
+          showConsole: true,
+          showConsoleButton: true,
+          showTabs: true,
+          showLineNumbers: true,
+          closableTabs: true,
+          // Attempt to show most relevant files, exclude configs from tabs initially
+          visibleFiles: Object.keys(files).filter(f => 
+            !files[f].hidden && 
+            (f.startsWith('/src/') || f === '/index.html' || f === '/package.json') &&
+            !f.endsWith('config.js') && 
+            !f.endsWith('postcss.config.js') &&
+            !f.endsWith('vite.config.ts') &&
+            !f.endsWith('.css')
+          ).slice(0, 5), // Limit initial tabs for clarity
+          activeFile: activeFile,
+          bundlerURL: "https://sandpack-bundler.codesandbox.io",
+          // entry: entryFilePath, // Vite template usually infers from index.html
+          // editorHeight: '100%', // Let flexbox control height distribution
+          // editorWidthPercentage: 40, // Make editor take 40% of width
+        }}
+      >
+        <SandpackLayout className="h-full w-full">
+          <SandpackCodeEditor
+              showTabs
+              showLineNumbers
+              showInlineErrors
+              wrapContent
+              style={{ height: '100%', flexGrow: 2, flexShrink: 1, minHeight: 0, flexBasis: '40%' }} // Editor takes less space
+          />
+          <SandpackPreview
+              showSandpackErrorOverlay
+              showOpenInCodeSandbox={false}
+              style={{ height: '100%', flexGrow: 3, flexShrink: 1, minHeight: 0, flexBasis: '60%' }} // Preview takes more space
+          />
+        </SandpackLayout>
+      </SandpackProvider>
+    </div>
   );
 }
-
