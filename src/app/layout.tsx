@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Assistant IA',
-  description: 'Discutez avec notre assistant IA intelligent.',
+  title: 'Sakai AI Assistant',
+  description: 'Discutez avec Sakai, votre assistant IA intelligent et créatif.',
 };
 
 export default function RootLayout({

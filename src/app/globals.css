@@ -17,8 +17,8 @@ body {
     --popover: 0 0% 100%;
     --popover-foreground: 240 5.9% 10%;
 
-    --primary: 207 90.2% 70.4%; /* #64B5F6 Calming Blue */
-    --primary-foreground: 240 5.9% 10%; /* Dark text on primary blue for contrast */
+    --primary: 145 55% 52%; /* #50B878 Modern Green */
+    --primary-foreground: 20 0% 100%; /* White text on primary green for contrast */
 
     --secondary: 210 40% 96.1%; /* A slightly off-white for secondary elements */
     --secondary-foreground: 240 5.9% 10%;
@@ -34,14 +34,14 @@ body {
 
     --border: 214.3 31.8% 88%; /* Slightly darker border */
     --input: 214.3 31.8% 88%; /* Consistent with border */
-    --ring: 207 90.2% 70.4%; /* Blue for rings */
+    --ring: 145 55% 52%; /* Green for rings, matching primary */
 
     --radius: 0.5rem;
 
-    /* Chart colors */
-    --chart-1: 207 90.2% 70.4%; /* Primary Blue */
+    /* Chart colors (kept for potential future use, chart-1 matches new primary) */
+    --chart-1: 145 55% 52%; /* Primary Green */
     --chart-2: 33 100% 64.7%; /* Accent Orange */
-    --chart-3: 120 60% 65%; /* A calm green */
+    --chart-3: 120 60% 65%; /* A calm green (different shade) */
     --chart-4: 280 70% 70%; /* A pleasant purple */
     --chart-5: 0 70% 70%; /* A soft red */
   }
@@ -56,7 +56,7 @@ body {
     --popover: 240 4.8% 14%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 207 90.2% 60.4%; /* Slightly darker blue for dark mode */
+    --primary: 145 50% 48%; /* Slightly darker green for dark mode */
     --primary-foreground: 0 0% 98%; /* Light text on dark primary */
 
     --secondary: 240 3.7% 15.9%;
@@ -73,10 +73,10 @@ body {
 
     --border: 240 3.7% 25.9%;
     --input: 240 3.7% 25.9%;
-    --ring: 207 90.2% 60.4%;
+    --ring: 145 50% 48%; /* Darker green for rings in dark mode */
     
     /* Chart colors for dark mode */
-    --chart-1: 207 80% 65%;
+    --chart-1: 145 50% 48%;
     --chart-2: 33 90% 60%;
     --chart-3: 120 50% 60%;
     --chart-4: 280 60% 65%;

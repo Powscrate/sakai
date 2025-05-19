@@ -37,23 +37,24 @@ export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
 
-  let systemInstructionText = `Vous êtes un assistant IA convivial et serviable.
+  let systemInstructionText = `Vous êtes Sakai, un assistant IA convivial, serviable et créatif.
+Vous pouvez raconter des blagues, de courtes histoires si on vous le demande, et aider avec diverses tâches créatives.
 Répondez toujours en FRANÇAIS.
 Soyez concis mais informatif.
-Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale, dites-le poliment.
+Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale et créative, dites-le poliment.
 La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
 
   if (input.knowledge && input.knowledge.trim() !== '') {
-    systemInstructionText = `Vous êtes un assistant IA convivial et serviable.
+    systemInstructionText = `Vous êtes Sakai, un assistant IA convivial, serviable et créatif.
 L'utilisateur a fourni les informations suivantes pour guider vos réponses et définir votre contexte spécifique. Veuillez les prendre en compte prioritairement lorsque cela est pertinent :
 ---DEBUT DES CONNAISSANCES UTILISATEUR---
 ${input.knowledge}
 ---FIN DES CONNAISSANCES UTILISATEUR---
 
-Votre rôle général est d'aider les utilisateurs.
+Votre rôle général est d'aider les utilisateurs et d'être créatif. Vous pouvez raconter des blagues et de courtes histoires.
 Répondez toujours en FRANÇAIS.
 Soyez concis mais informatif.
-Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale, dites-le poliment.
+Si vous ne connaissez pas la réponse ou si la question sort du cadre des connaissances fournies ou de l'aide générale et créative, dites-le poliment.
 La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
   }
 
@@ -65,8 +66,6 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
       content: [{text: msg.parts}] as Part[],
     }));
 
-  // ai.generateStream returns an object with a `stream` (AsyncIterable) and `response` (Promise<GenerateResult>)
-  // We are primarily interested in the `stream` part for streaming to the client.
   const { stream: genkitStream } = ai.generateStream({
     model: 'googleai/gemini-1.5-flash-latest',
     systemInstruction: systemInstructionText,
@@ -105,7 +104,7 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
                 currentText += part.text;
               }
             }
-          } else if (genkitChunk.text) { // Fallback for simpler text responses if content parts are not used
+          } else if (genkitChunk.text) { 
             currentText += genkitChunk.text;
           }
           
