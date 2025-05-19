@@ -3,7 +3,7 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent, ChangeEvent, Fragment } from 'react';
-import NextImage from 'next/image'; // Renamed to avoid conflict with lucide-react Image
+import NextImage from 'next/image'; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,7 +47,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
-import { generateImage, type GenerateImageInput } from '@/ai/flows/generate-image-flow';
+import { generateImage, type GenerateImageInput, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -93,6 +93,7 @@ const imageStyles = [
 ];
 
 const imageAspectRatios = [
+  { value: "default", label: "Par défaut (1:1)" },
   { value: "1:1", label: "Carré (1:1)" },
   { value: "16:9", label: "Large (16:9)" },
   { value: "9:16", label: "Portrait (9:16)" },
@@ -123,7 +124,7 @@ export function ChatAssistant() {
 
   const [isImageSettingsPopoverOpen, setIsImageSettingsPopoverOpen] = useState(false);
   const [imageStyle, setImageStyle] = useState<string>("default");
-  const [imageAspectRatio, setImageAspectRatio] = useState<string>("1:1");
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>("default");
 
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -143,16 +144,10 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isLoading && !isImageSettingsPopoverOpen ) { 
+    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen && !isLoading && !isImageSettingsPopoverOpen ) { 
       inputRef.current.focus();
     }
-  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isImageSettingsPopoverOpen]); 
-
-   useEffect(() => {
-    if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen && !isImageSettingsPopoverOpen) {
-      inputRef.current.focus();
-    }
-  }, [isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isFeaturesDialogOpen, isAboutDialogOpen, isImageSettingsPopoverOpen]);
+  }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isFeaturesDialogOpen, isAboutDialogOpen, isImageSettingsPopoverOpen]); 
 
   useEffect(() => {
     if (input.startsWith('/image ')) {
@@ -174,13 +169,14 @@ export function ChatAssistant() {
         if (!effectiveMimeType) {
             if (file.name.endsWith('.md')) effectiveMimeType = 'text/markdown';
             else if (file.name.endsWith('.txt')) effectiveMimeType = 'text/plain';
+            else if (file.name.endsWith('.pdf')) effectiveMimeType = 'application/pdf';
         }
 
         const isAllowedMimeType = allowedTypes.includes(effectiveMimeType);
-        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.pdf'); // Primarily for non-typed files
+        const isAllowedExtension = file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.pdf'); 
 
 
-        if (isAllowedMimeType || (isAllowedExtension && !effectiveMimeType) ) { // Allow if MIME type known or extension is .md/.txt/.pdf and MIME unknown
+        if (isAllowedMimeType || (isAllowedExtension && !effectiveMimeType) ) { 
           const reader = new FileReader();
           reader.onloadend = () => {
             if (reader.result) {
@@ -242,11 +238,11 @@ export function ChatAssistant() {
     const generationInput: GenerateImageInput = { 
         prompt: basePrompt,
         ...(imageStyle !== "default" && { style: imageStyle }),
-        ...(imageAspectRatio !== "default" && { aspectRatio: imageAspectRatio }), // Assuming "1:1" is default in flow if not specified
+        ...(imageAspectRatio !== "default" && { aspectRatio: imageAspectRatio }), 
     };
     
     try {
-      const result = await generateImage(generationInput);
+      const result: GenerateImageOutput = await generateImage(generationInput);
       if (result.imageUrl) {
         setMessages(prev => prev.map(msg => 
           msg.id === imageGenPlaceholderId 
@@ -272,7 +268,7 @@ export function ChatAssistant() {
     } finally {
       setIsLoading(false);
       setImageStyle("default");
-      setImageAspectRatio("1:1");
+      setImageAspectRatio("default");
     }
   };
   
@@ -352,7 +348,10 @@ export function ChatAssistant() {
 
         const chatChunk: ChatStreamChunk = value;
 
-        if (chatChunk.error) throw new Error(chatChunk.error);
+        if (chatChunk.error) {
+          console.error("Stream error from server:", chatChunk.error);
+          throw new Error(chatChunk.error);
+        }
 
         if (chatChunk.text) {
           accumulatedText += chatChunk.text;
@@ -470,7 +469,9 @@ export function ChatAssistant() {
       const codeBlockRegex = /```([\s\S]*?)```/g;
       let lastIndex = 0;
       const elements = [];
+      // Ensure a unique prefix for keys within this part rendering
       const uniqueKeyPrefix = `${message.id}-text-${partIndex}`;
+      let match; // Declare match outside the loop
 
       while ((match = codeBlockRegex.exec(part.text)) !== null) {
         if (match.index > lastIndex) {
@@ -481,7 +482,7 @@ export function ChatAssistant() {
           );
         }
         elements.push(
-          <pre key={`${uniqueKeyPrefix}-pre-${match.index}`}>
+          <pre key={`${uniqueKeyPrefix}-pre-${match.index}`} className="my-2"> {/* Added margin for pre blocks */}
             <code>{match[1].trim()}</code>
           </pre>
         );
@@ -496,6 +497,7 @@ export function ChatAssistant() {
         );
       }
       
+      // Use Fragment for mapping multiple elements
       const textContent = elements.length > 0 ? elements.map((el, i) => <Fragment key={i}>{el}</Fragment>) : part.text;
 
       return (
@@ -512,7 +514,7 @@ export function ChatAssistant() {
       const isImageFile = part.mimeType?.startsWith('image/');
       if (isImageFile) {
         return (
-          <NextImage // Use NextImage
+          <NextImage 
             key={uniquePartKey}
             src={part.imageDataUri} 
             alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
@@ -526,7 +528,7 @@ export function ChatAssistant() {
         return (
           <div key={uniquePartKey} className="my-2 p-2 border border-dashed rounded-md bg-muted/30 flex items-center gap-2">
             <FileText className="h-6 w-6 text-primary shrink-0" />
-            <span className="text-xs text-muted-foreground truncate">Fichier: {part.mimeType || 'document'}</span>
+            <span className="text-xs text-muted-foreground truncate">Fichier: {part.mimeType || 'document'} ({message.role === 'user' ? 'téléversé' : 'généré'})</span>
           </div>
         );
       }
@@ -537,11 +539,11 @@ export function ChatAssistant() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-2 sm:p-4 md:p-6 lg:p-8 transition-colors duration-300">
-      <Card className="w-full max-w-2xl h-full flex flex-col shadow-2xl border rounded-2xl overflow-hidden bg-card">
+      <Card className="w-full max-w-2xl h-full flex flex-col shadow-2xl border rounded-2xl overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between p-4 border-b shrink-0 bg-card">
           <div className="flex items-center gap-3">
             <SakaiLogo className="h-9 w-9 text-primary" />
-            <CardTitle className="text-2xl font-semibold text-foreground">
+            <CardTitle>
               Sakai
             </CardTitle>
           </div>
@@ -700,7 +702,7 @@ export function ChatAssistant() {
             <PopoverContent className="w-[calc(100%-2rem)] sm:w-[400px] mb-1 p-4 rounded-lg shadow-xl border bg-popover" side="top" align="center" sideOffset={10}>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="image-style" className="flex items-center text-sm font-medium text-foreground">
+                  <Label htmlFor="image-style" className="flex items-center text-sm font-medium">
                     <Palette className="h-4 w-4 mr-2 text-primary" />
                     Style Artistique
                   </Label>
@@ -716,7 +718,7 @@ export function ChatAssistant() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="flex items-center text-sm font-medium text-foreground">
+                  <Label className="flex items-center text-sm font-medium">
                     <Ratio className="h-4 w-4 mr-2 text-primary" />
                     Ratio d'Aspect
                   </Label>
@@ -732,7 +734,6 @@ export function ChatAssistant() {
                           htmlFor={`ratio-${ratio.value}`}
                           className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-2 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer text-xs"
                         >
-                          {/* Basic visual representation of aspect ratio */}
                           {ratio.value === "1:1" && <div className="w-6 h-6 bg-muted-foreground/50 rounded-sm mb-1"></div>}
                           {ratio.value === "16:9" && <div className="w-8 h-[4.5rem/2] bg-muted-foreground/50 rounded-sm mb-1"></div>}
                           {ratio.value === "9:16" && <div className="w-[4.5rem/2] h-8 bg-muted-foreground/50 rounded-sm mb-1"></div>}
@@ -779,12 +780,18 @@ export function ChatAssistant() {
 
       <MemoryDialog
         isOpen={isMemoryDialogOpen}
-        onOpenChange={setIsMemoryDialogOpen}
+        onOpenChange={(open) => {
+          setIsMemoryDialogOpen(open);
+          if (!open && inputRef.current) inputRef.current.focus();
+        }}
         currentMemory={userMemory}
         onSaveMemory={handleSaveMemory}
       />
 
-      <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
+      <AlertDialog open={isFeaturesDialogOpen} onOpenChange={(open) => {
+          setIsFeaturesDialogOpen(open);
+          if (!open && inputRef.current) inputRef.current.focus();
+        }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle>
@@ -809,7 +816,10 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
+      <AlertDialog open={isAboutDialogOpen} onOpenChange={(open) => {
+        setIsAboutDialogOpen(open);
+        if (!open && inputRef.current) inputRef.current.focus();
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
@@ -829,7 +839,10 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
       
-      <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
+      <AlertDialog open={isDevCodePromptOpen} onOpenChange={(open) => {
+        setIsDevCodePromptOpen(open);
+        if (!open && !isDevSettingsOpen && inputRef.current) inputRef.current.focus();
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle>
@@ -853,7 +866,10 @@ export function ChatAssistant() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
+      <Dialog open={isDevSettingsOpen} onOpenChange={(open) => {
+        setIsDevSettingsOpen(open);
+        if (!open && inputRef.current) inputRef.current.focus();
+      }}>
         <DialogContent className="sm:max-w-[600px] bg-card">
             <DialogHeader>
                 <DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Paramètres Développeur</DialogTitle>
@@ -919,4 +935,3 @@ export function ChatAssistant() {
     </div>
   );
 }
-
