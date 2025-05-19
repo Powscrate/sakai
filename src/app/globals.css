@@ -8,16 +8,16 @@ body {
 
 @layer base {
   :root {
-    --background: 220 14.3% 95.9%; /* #F5F5F5 light gray */
-    --foreground: 240 5.9% 10%;
+    --background: 220 14.3% 95.9%; /* #F5F7FA light gray */
+    --foreground: 240 5.9% 10%; /* Dark Gray */
 
-    --card: 0 0% 100%;
+    --card: 0 0% 100%; /* White */
     --card-foreground: 240 5.9% 10%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 240 5.9% 10%;
 
-    --primary: 207 90.2% 70.4%; /* #64B5F6 calming blue */
+    --primary: 207 90.2% 70.4%; /* #64B5F6 Calming Blue */
     --primary-foreground: 240 5.9% 10%; /* Dark text on primary blue for contrast */
 
     --secondary: 210 40% 96.1%; /* A slightly off-white for secondary elements */
@@ -26,7 +26,7 @@ body {
     --muted: 210 40% 92%; /* Muted elements, slightly darker than background */
     --muted-foreground: 240 3.8% 46.1%;
 
-    --accent: 33 100% 64.7%; /* #FFB74D warm orange */
+    --accent: 33 100% 64.7%; /* #FFB74D Warm Orange */
     --accent-foreground: 240 5.9% 10%; /* Dark text on accent orange */
 
     --destructive: 0 84.2% 60.2%;
@@ -38,7 +38,7 @@ body {
 
     --radius: 0.5rem;
 
-    /* Chart colors (can be expanded) */
+    /* Chart colors */
     --chart-1: 207 90.2% 70.4%; /* Primary Blue */
     --chart-2: 33 100% 64.7%; /* Accent Orange */
     --chart-3: 120 60% 65%; /* A calm green */
@@ -57,7 +57,7 @@ body {
     --popover-foreground: 0 0% 98%;
 
     --primary: 207 90.2% 60.4%; /* Slightly darker blue for dark mode */
-    --primary-foreground: 0 0% 98%;
+    --primary-foreground: 0 0% 98%; /* Light text on dark primary */
 
     --secondary: 240 3.7% 15.9%;
     --secondary-foreground: 0 0% 98%;
@@ -66,7 +66,7 @@ body {
     --muted-foreground: 0 0% 63.9%;
 
     --accent: 33 100% 58.7%; /* Slightly darker orange for dark mode */
-    --accent-foreground: 240 5.9% 10%;
+    --accent-foreground: 240 5.9% 10%; /* Dark text on dark accent */
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
