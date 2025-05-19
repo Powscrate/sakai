@@ -1,22 +1,23 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist } from 'next/font/google'; // Geist_Mono no longer explicitly needed if not widely used
 import './globals.css';
 import { AppShell } from '@/components/layout/app-shell';
 import { Toaster } from "@/components/ui/toaster";
+import { ThemeProvider } from "next-themes"; // Recommended for dark mode
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+// const geistMono = Geist_Mono({ // Can be removed if not primary font for code/mono elements
+//   variable: '--font-geist-mono',
+//   subsets: ['latin'],
+// });
 
 export const metadata: Metadata = {
   title: 'Sakai AI Assistant',
-  description: 'Discutez avec Sakai, votre assistant IA intelligent et créatif.',
+  description: 'Sakai - Votre assistant IA personnel et intelligent.',
 };
 
 export default function RootLayout({
@@ -26,11 +27,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <AppShell>
-          {children}
-        </AppShell>
-        <Toaster />
+      <body className={`${geistSans.variable} antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <AppShell>
+            {children}
+          </AppShell>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

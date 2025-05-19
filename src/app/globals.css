@@ -8,79 +8,81 @@ body {
 
 @layer base {
   :root {
-    --background: 220 14.3% 95.9%; /* #F5F7FA light gray */
-    --foreground: 240 5.9% 10%; /* Dark Gray */
+    /* Teal & Modern Palette - Light Mode */
+    --background: 200 60% 98%; /* Very light, almost white with a hint of teal */
+    --foreground: 205 50% 20%; /* Dark cool gray / desaturated teal */
 
     --card: 0 0% 100%; /* White */
-    --card-foreground: 240 5.9% 10%;
+    --card-foreground: 205 50% 20%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 5.9% 10%;
+    --popover-foreground: 205 50% 20%;
 
-    --primary: 145 55% 52%; /* #50B878 Modern Green */
-    --primary-foreground: 20 0% 100%; /* White text on primary green for contrast */
+    --primary: 175 65% 45%; /* Vibrant Teal */
+    --primary-foreground: 200 100% 98%; /* Light text on primary for contrast */
 
-    --secondary: 210 40% 96.1%; /* A slightly off-white for secondary elements */
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 190 30% 95%; /* Light teal/gray for secondary elements */
+    --secondary-foreground: 205 50% 25%;
 
-    --muted: 210 40% 92%; /* Muted elements, slightly darker than background */
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted: 190 30% 92%; /* Muted elements, slightly darker than secondary */
+    --muted-foreground: 205 30% 45%;
 
-    --accent: 33 100% 64.7%; /* #FFB74D Warm Orange */
-    --accent-foreground: 240 5.9% 10%; /* Dark text on accent orange */
+    --accent: 30 90% 60%; /* Warm Coral/Orange for accent */
+    --accent-foreground: 205 50% 20%; /* Dark text on accent */
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 214.3 31.8% 88%; /* Slightly darker border */
-    --input: 214.3 31.8% 88%; /* Consistent with border */
-    --ring: 145 55% 52%; /* Green for rings, matching primary */
+    --border: 190 30% 88%; /* Slightly darker border */
+    --input: 190 30% 90%; /* Consistent with border but distinct */
+    --ring: 175 65% 45%; /* Teal for rings, matching primary */
 
-    --radius: 0.5rem;
+    --radius: 0.75rem; /* Slightly more rounded */
 
-    /* Chart colors (kept for potential future use, chart-1 matches new primary) */
-    --chart-1: 145 55% 52%; /* Primary Green */
-    --chart-2: 33 100% 64.7%; /* Accent Orange */
-    --chart-3: 120 60% 65%; /* A calm green (different shade) */
-    --chart-4: 280 70% 70%; /* A pleasant purple */
-    --chart-5: 0 70% 70%; /* A soft red */
+    /* Chart colors (adjust if charts are reintroduced) */
+    --chart-1: 175 65% 45%; /* Primary Teal */
+    --chart-2: 30 90% 60%;  /* Accent Coral */
+    --chart-3: 200 60% 65%; /* Lighter Teal */
+    --chart-4: 260 60% 70%; /* Soft Purple */
+    --chart-5: 0 60% 70%;   /* Soft Red/Pink */
   }
 
   .dark {
-    --background: 240 5.9% 10%; /* Dark background */
-    --foreground: 0 0% 98%; /* Light text */
+    /* Teal & Modern Palette - Dark Mode */
+    --background: 205 40% 12%; /* Dark cool gray / desaturated teal */
+    --foreground: 190 20% 90%; /* Light gray for text */
 
-    --card: 240 4.8% 14%; /* Darker card */
-    --card-foreground: 0 0% 98%;
+    --card: 205 35% 18%; /* Darker card */
+    --card-foreground: 190 20% 90%;
 
-    --popover: 240 4.8% 14%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 205 35% 18%;
+    --popover-foreground: 190 20% 90%;
 
-    --primary: 145 50% 48%; /* Slightly darker green for dark mode */
-    --primary-foreground: 0 0% 98%; /* Light text on dark primary */
+    --primary: 175 60% 55%; /* Teal, slightly lighter for dark mode */
+    --primary-foreground: 205 50% 15%; /* Dark text on dark primary */
 
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 205 30% 22%;
+    --secondary-foreground: 190 20% 90%;
 
-    --muted: 240 3.7% 20%;
-    --muted-foreground: 0 0% 63.9%;
+    --muted: 205 30% 25%;
+    --muted-foreground: 190 20% 65%;
 
-    --accent: 33 100% 58.7%; /* Slightly darker orange for dark mode */
-    --accent-foreground: 240 5.9% 10%; /* Dark text on dark accent */
+    --accent: 30 80% 65%; /* Coral/Orange, slightly adjusted */
+    --accent-foreground: 205 40% 12%; /* Dark text on dark accent */
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 60% 50%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 3.7% 25.9%;
-    --input: 240 3.7% 25.9%;
-    --ring: 145 50% 48%; /* Darker green for rings in dark mode */
+    --border: 205 30% 30%;
+    --input: 205 30% 28%;
+    --ring: 175 60% 55%; /* Teal for rings in dark mode */
     
     /* Chart colors for dark mode */
-    --chart-1: 145 50% 48%;
-    --chart-2: 33 90% 60%;
-    --chart-3: 120 50% 60%;
-    --chart-4: 280 60% 65%;
-    --chart-5: 0 60% 65%;
+    --chart-1: 175 60% 55%;
+    --chart-2: 30 80% 65%;
+    --chart-3: 200 50% 60%;
+    --chart-4: 260 50% 65%;
+    --chart-5: 0 50% 65%;
   }
 }
 
@@ -89,7 +91,7 @@ body {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground transition-colors duration-300;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
