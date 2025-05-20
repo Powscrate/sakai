@@ -97,39 +97,55 @@ body {
   }
 }
 
-/* Styles for code blocks */
+/* Styles for code blocks - adjusted for react-syntax-highlighter */
 pre {
-  background-color: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-  padding: 1rem;
-  border-radius: var(--radius);
-  overflow-x: auto;
-  font-family: Menlo, Monaco, Consolas, "Courier New", monospace; /* Using generic monospace fonts */
+  /* background-color: hsl(var(--muted)); */ /* Handled by SyntaxHighlighter style prop */
+  /* color: hsl(var(--muted-foreground)); */ /* Handled by SyntaxHighlighter style prop */
+  /* padding: 1rem; */ /* Handled by SyntaxHighlighter style prop */
+  /* border-radius: var(--radius); */ /* SyntaxHighlighter's pre usually has its own or none */
+  overflow-x: auto; /* Good to keep for long lines not wrapped by highlighter */
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace; /* Sensible default */
   font-size: 0.875rem; /* 14px */
-  line-height: 1.6; /* Adjusted for better readability */
+  line-height: 1.5; /* Adjusted for better readability; SyntaxHighlighter may also control this */
   margin-top: 0.5em;
   margin-bottom: 0.5em;
-  white-space: pre; /* Ensures whitespace is preserved, works with pre-wrap on child for wrapping */
+  white-space: pre; /* Ensures whitespace is preserved by default, but SyntaxHighlighter might use pre-wrap */
 }
 
+/* SyntaxHighlighter renders its own <pre> and <code>, so these might not be needed or can be minimal */
 pre code {
-  font-family: inherit;
-  background-color: transparent;
-  color: inherit;
-  padding: 0;
+  font-family: inherit; /* Good to inherit from pre */
+  background-color: transparent !important; /* Ensure no double background */
+  color: inherit !important; /* Ensure text color is from highlighter */
+  padding: 0 !important; /* SyntaxHighlighter usually handles padding */
   border-radius: 0;
-  white-space: pre-wrap; /* Allow wrapping within the code block */
-  word-break: break-all; /* Break long words/strings if necessary to prevent overflow */
+  /* white-space: pre-wrap; */ /* Controlled by SyntaxHighlighter's wrapLines or lineProps */
+  /* word-break: break-all; */ /* Controlled by SyntaxHighlighter's lineProps */
 }
 
 /* Blinking cursor style */
 .blinking-cursor-span {
   animation: blink 1s step-end infinite;
-  /* If you want it to be a block character that pushes text, use display: inline-block; 
-     For a simple trailing cursor, 'inline' is fine with a character like '▋' or '|'. */
 }
 
 @keyframes blink {
   from, to { opacity: 1; }
   50% { opacity: 0; }
+}
+
+/* Custom scrollbar for code blocks, optional */
+pre::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+pre::-webkit-scrollbar-track {
+  background: hsl(var(--muted) / 0.5);
+  border-radius: 4px;
+}
+pre::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.5);
+  border-radius: 4px;
+}
+pre::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.7);
 }

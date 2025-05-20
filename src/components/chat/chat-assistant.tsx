@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle,
-  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare, Image as ImageIcon, Brush // Added Brush for Inpainter
+  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare, Image as ImageIcon, Brush, Copy, Check
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -51,6 +51,44 @@ import { MemoryDialog } from './memory-dialog';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { ThemeToggleButton } from './theme-toggle-button';
 import Link from 'next/link';
+
+import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+// Import languages you want to support
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp';
+import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
+import shell from 'react-syntax-highlighter/dist/esm/languages/prism/shell-session';
+
+
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('ts', typescript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('js', javascript);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('py', python);
+SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('md', markdown);
+SyntaxHighlighter.registerLanguage('java', java);
+SyntaxHighlighter.registerLanguage('csharp', csharp);
+SyntaxHighlighter.registerLanguage('cs', csharp);
+SyntaxHighlighter.registerLanguage('cpp', cpp);
+SyntaxHighlighter.registerLanguage('shell', shell);
+SyntaxHighlighter.registerLanguage('sh', shell);
+SyntaxHighlighter.registerLanguage('bash', shell);
+
 
 interface QuickAction {
   label: string;
@@ -100,6 +138,7 @@ export function ChatAssistant() {
   const [tempModelTemperature, setTempModelTemperature] = useState(devModelTemperature ?? 0.7);
 
   const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
+  const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
 
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -139,11 +178,10 @@ export function ChatAssistant() {
             else if (file.name.endsWith('.txt')) effectiveMimeType = 'text/plain';
             else if (file.name.endsWith('.pdf')) effectiveMimeType = 'application/pdf';
             else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => file.name.toLowerCase().endsWith(ext))) {
-                 // Try to be more specific for common image types if browser gives generic
                 if (file.name.toLowerCase().endsWith('.png')) effectiveMimeType = 'image/png';
                 else if (file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
                 else if (file.name.toLowerCase().endsWith('.webp')) effectiveMimeType = 'image/webp';
-                else effectiveMimeType = 'image/*'; // Fallback for other images
+                else effectiveMimeType = 'image/*';
             } else {
                 effectiveMimeType = 'application/octet-stream'; 
             }
@@ -186,7 +224,7 @@ export function ChatAssistant() {
       });
     }
     if (event.target) {
-        event.target.value = ''; // Reset file input to allow re-uploading the same file
+        event.target.value = ''; 
     }
   };
 
@@ -205,7 +243,7 @@ export function ChatAssistant() {
   const handleImageGeneration = async (prompt: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
-    setCurrentStreamingMessageId(null); // Not streaming text for this one
+    setCurrentStreamingMessageId(null); 
     setMessages(prev => [...prev, {
       role: 'model',
       parts: [{type: 'text', text: `Sakai génère une image pour : "${prompt}"...`}],
@@ -247,7 +285,7 @@ export function ChatAssistant() {
     const currentInput = (typeof e === 'string' ? e : input).trim();
     if ((!currentInput && uploadedFiles.length === 0) || isLoading) return;
 
-    const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de"];
+    const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de", "génère une photo de", "génère un dessin de"];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
     for (const keyword of imageKeywords) {
@@ -257,7 +295,8 @@ export function ChatAssistant() {
         }
     }
     
-    if (isImageRequestIntent && uploadedFiles.length === 0 && currentInput.split(' ').length < 25) {
+    // Consider it an image generation request if keywords are present, no files are uploaded, and prompt is not excessively long.
+    if (isImageRequestIntent && uploadedFiles.length === 0 && currentInput.split(' ').length < 30) {
       const newUserMessage: ChatMessage = { role: 'user', parts: [{type: 'text', text: currentInput}], id: `user-${Date.now()}` };
       setMessages(prev => [...prev, newUserMessage]);
       if (typeof e !== 'string') setInput('');
@@ -269,7 +308,7 @@ export function ChatAssistant() {
 
     uploadedFiles.forEach(fileWrapper => {
       let mimeType = fileWrapper.file.type;
-       if (!mimeType || mimeType === "application/octet-stream") { // Double check MIME type
+       if (!mimeType || mimeType === "application/octet-stream") { 
             if (fileWrapper.file.name.endsWith('.md')) mimeType = 'text/markdown';
             else if (fileWrapper.file.name.endsWith('.txt')) mimeType = 'text/plain';
             else if (fileWrapper.file.name.endsWith('.pdf')) mimeType = 'application/pdf';
@@ -282,7 +321,7 @@ export function ChatAssistant() {
             else mimeType = 'application/octet-stream';
         }
       newUserMessageParts.push({
-        type: 'image', 
+        type: 'image', // Using 'image' type for generic media, relying on mimeType
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -438,41 +477,80 @@ export function ChatAssistant() {
     setTempModelTemperature(devModelTemperature ?? 0.7);
   }, [devOverrideSystemPrompt, devModelTemperature]);
 
+  const handleCopyCode = (codeToCopy: string, partId: string) => {
+    navigator.clipboard.writeText(codeToCopy).then(() => {
+      setCopiedStates(prev => ({ ...prev, [partId]: true }));
+      setTimeout(() => {
+        setCopiedStates(prev => ({ ...prev, [partId]: false }));
+      }, 2000);
+      toast({ title: "Copié!", description: "Le code a été copié dans le presse-papiers." });
+    }).catch(err => {
+      console.error('Failed to copy code: ', err);
+      toast({ title: "Erreur", description: "Impossible de copier le code.", variant: "destructive" });
+    });
+  };
+
   const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
-    const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}`;
+    const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}-${Math.random()}`;
 
     if (part.type === 'text') {
-      const codeBlockRegex = /```([\s\S]*?)```/g;
+      const codeBlockRegex = /```(\w*)\n?([\s\S]+?)```/g;
       let lastIndex = 0;
       const elements = [];
-      const uniqueKeyPrefix = `${message.id}-text-${partIndex}`;
       let match;
 
       while ((match = codeBlockRegex.exec(part.text)) !== null) {
         if (match.index > lastIndex) {
           elements.push(
-            <span key={`${uniqueKeyPrefix}-span-${lastIndex}`}>
+            <span key={`${uniquePartKey}-text-${lastIndex}`}>
               {part.text.substring(lastIndex, match.index)}
             </span>
           );
         }
+        
+        const language = match[1]?.toLowerCase() || 'plaintext';
+        const code = match[2].trim();
+        const codeBlockId = `${uniquePartKey}-code-${match.index}`;
+
         elements.push(
-          <pre key={`${uniqueKeyPrefix}-pre-${match.index}`} className="my-2">
-            <code>{match[1].trim()}</code>
-          </pre>
+          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2 rounded-md shadow">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50">
+              <span className="text-xs text-muted-foreground font-mono">{language}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-50 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                onClick={() => handleCopyCode(code, codeBlockId)}
+                aria-label="Copier le code"
+              >
+                {copiedStates[codeBlockId] ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            <SyntaxHighlighter
+              language={language}
+              style={vscDarkPlus} // Or another style from react-syntax-highlighter/dist/esm/styles/prism
+              showLineNumbers
+              wrapLines={true}
+              lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
+              className="!p-3 !text-sm !bg-transparent" // Override default padding/bg of SyntaxHighlighter
+              codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
+            >
+              {code}
+            </SyntaxHighlighter>
+          </div>
         );
         lastIndex = match.index + match[0].length;
       }
 
       if (lastIndex < part.text.length) {
         elements.push(
-          <span key={`${uniqueKeyPrefix}-span-${lastIndex}`}>
+          <span key={`${uniquePartKey}-text-${lastIndex}`}>
             {part.text.substring(lastIndex)}
           </span>
         );
       }
-
-      const textContent = elements.length > 0 ? elements.map((el, i) => <Fragment key={i}>{el}</Fragment>) : part.text;
+      
+      const textContent = elements.length > 0 ? elements.map((el, i) => <Fragment key={`${uniquePartKey}-frag-${i}`}>{el}</Fragment>) : part.text;
 
       return (
         <div key={uniquePartKey} className="text-sm whitespace-pre-wrap leading-relaxed">
