@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Send, Loader2, User, Bot, Mic, Zap, MessageSquarePlus, HelpCircle, Languages, Brain, Paperclip, XCircle,
-  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare, Image as ImageIcon // AspectRatioIcon and Palette removed as popover is removed
+  MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, FileText, Trash2, MessageSquare, Image as ImageIcon, Brush // Added Brush for Inpainter
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,10 +41,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-// Popover, RadioGroup, Select related imports are removed as the image settings popover is removed.
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
-import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow'; // GenerateImageInput type might be simplified if not used directly here.
+import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -62,7 +61,7 @@ interface QuickAction {
 
 const quickActions: QuickAction[] = [
   { label: "Raconte une blague", prompt: "Raconte-moi une blague.", icon: MessageSquarePlus, actionType: 'input' },
-  { label: "Génère un chaton", prompt: "Génère une image d'un chaton explorant une bibliothèque magique", icon: ImageIcon, actionType: 'input' },
+  { label: "Génère un chaton mignon", prompt: "Génère une image d'un chaton mignon explorant une bibliothèque magique", icon: ImageIcon, actionType: 'input' },
   { label: "Traduis 'Bonjour le monde'", prompt: "Traduis 'Bonjour le monde' en espagnol.", icon: Languages, actionType: 'input' },
   { label: "Résume cet email: [coller ici]", prompt: "Peux-tu m'aider à résumer cet email : ", icon: Mail, actionType: 'input' },
   { label: "Planifie un voyage pour...", prompt: "Aide-moi à planifier un voyage pour [destination] pour [nombre] jours.", icon: Plane, actionType: 'input' },
@@ -79,7 +78,6 @@ interface UploadedFileWrapper {
   id: string;
 }
 
-// Image style and aspect ratio constants are removed as the popover is removed.
 
 export function ChatAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -103,11 +101,6 @@ export function ChatAssistant() {
 
   const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
 
-  // States for image settings popover are removed
-  // const [isImageSettingsPopoverOpen, setIsImageSettingsPopoverOpen] = useState(false);
-  // const [imageStyle, setImageStyle] = useState<string>("default");
-  // const [imageAspectRatio, setImageAspectRatio] = useState<string>("default");
-
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -126,20 +119,17 @@ export function ChatAssistant() {
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    // Focus input if no dialogs are open and not loading
     if (inputRef.current && !isMemoryDialogOpen && !isDevSettingsOpen && !isDevCodePromptOpen && !isFeaturesDialogOpen && !isAboutDialogOpen && !isLoading) {
       inputRef.current.focus();
     }
   }, [isLoading, isMemoryDialogOpen, isDevSettingsOpen, isDevCodePromptOpen, isFeaturesDialogOpen, isAboutDialogOpen]);
 
-  // useEffect for image settings popover is removed
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
       const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'text/plain', 'text/markdown'];
-      let currentFilesCount = uploadedFiles.length;
-
+      
       Array.from(files).forEach(file => {
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
         
@@ -148,7 +138,15 @@ export function ChatAssistant() {
             if (file.name.endsWith('.md')) effectiveMimeType = 'text/markdown';
             else if (file.name.endsWith('.txt')) effectiveMimeType = 'text/plain';
             else if (file.name.endsWith('.pdf')) effectiveMimeType = 'application/pdf';
-            // Add more specific type detections if needed
+            else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => file.name.toLowerCase().endsWith(ext))) {
+                 // Try to be more specific for common image types if browser gives generic
+                if (file.name.toLowerCase().endsWith('.png')) effectiveMimeType = 'image/png';
+                else if (file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
+                else if (file.name.toLowerCase().endsWith('.webp')) effectiveMimeType = 'image/webp';
+                else effectiveMimeType = 'image/*'; // Fallback for other images
+            } else {
+                effectiveMimeType = 'application/octet-stream'; 
+            }
         }
         
         const isAllowed = allowedTypes.some(type => 
@@ -188,7 +186,7 @@ export function ChatAssistant() {
       });
     }
     if (event.target) {
-        event.target.value = '';
+        event.target.value = ''; // Reset file input to allow re-uploading the same file
     }
   };
 
@@ -207,7 +205,7 @@ export function ChatAssistant() {
   const handleImageGeneration = async (prompt: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
-    setCurrentStreamingMessageId(null);
+    setCurrentStreamingMessageId(null); // Not streaming text for this one
     setMessages(prev => [...prev, {
       role: 'model',
       parts: [{type: 'text', text: `Sakai génère une image pour : "${prompt}"...`}],
@@ -215,12 +213,11 @@ export function ChatAssistant() {
     }]);
 
     try {
-      // The GenerateImageInput type in the flow was simplified, so we only pass the prompt.
       const result: GenerateImageOutput = await generateImage({ prompt });
       if (result.imageUrl) {
         setMessages(prev => prev.map(msg =>
           msg.id === imageGenPlaceholderId
-          ? {...msg, parts: [{ type: 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }]} // Assuming PNG for now
+          ? {...msg, parts: [{ type: 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }]} 
           : msg
         ));
       } else {
@@ -241,7 +238,6 @@ export function ChatAssistant() {
       ));
     } finally {
       setIsLoading(false);
-      // Resetting imageStyle and imageAspectRatio states is removed as they are no longer used.
     }
   };
 
@@ -260,12 +256,11 @@ export function ChatAssistant() {
             break;
         }
     }
-    // Simple heuristic: if it seems like an image request and no files are uploaded, try to generate.
+    
     if (isImageRequestIntent && uploadedFiles.length === 0 && currentInput.split(' ').length < 25) {
       const newUserMessage: ChatMessage = { role: 'user', parts: [{type: 'text', text: currentInput}], id: `user-${Date.now()}` };
       setMessages(prev => [...prev, newUserMessage]);
       if (typeof e !== 'string') setInput('');
-      // No files to clear here for image generation intent
       await handleImageGeneration(currentInput);
       return;
     }
@@ -274,16 +269,20 @@ export function ChatAssistant() {
 
     uploadedFiles.forEach(fileWrapper => {
       let mimeType = fileWrapper.file.type;
-       if (!mimeType || mimeType === "application/octet-stream") {
+       if (!mimeType || mimeType === "application/octet-stream") { // Double check MIME type
             if (fileWrapper.file.name.endsWith('.md')) mimeType = 'text/markdown';
             else if (fileWrapper.file.name.endsWith('.txt')) mimeType = 'text/plain';
             else if (fileWrapper.file.name.endsWith('.pdf')) mimeType = 'application/pdf';
-            // Use a generic image type if it's an image but type is not specific
-            else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => fileWrapper.file.name.toLowerCase().endsWith(ext))) mimeType = 'image/*';
-            else mimeType = 'application/octet-stream'; // Fallback
+            else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => fileWrapper.file.name.toLowerCase().endsWith(ext))) {
+                if (fileWrapper.file.name.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+                else if (fileWrapper.file.name.toLowerCase().endsWith('.jpg') || fileWrapper.file.name.toLowerCase().endsWith('.jpeg')) mimeType = 'image/jpeg';
+                else if (fileWrapper.file.name.toLowerCase().endsWith('.webp')) mimeType = 'image/webp';
+                else mimeType = 'image/*';
+            }
+            else mimeType = 'application/octet-stream';
         }
       newUserMessageParts.push({
-        type: 'image', // Using 'image' type for all media, relying on mimeType
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -307,8 +306,7 @@ export function ChatAssistant() {
     setMessages(prev => [...prev, { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId }]);
 
     const currentHistory = [...messages, newUserMessage].filter(msg =>
-      !(msg.parts.length === 1 && msg.parts[0].type === 'text' &&
-        (msg.parts[0].text.startsWith('Sakai génère une image') || msg.parts[0].text.startsWith("Sakai analyse votre")))
+      !(msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image'))
     );
 
     try {
@@ -519,7 +517,7 @@ export function ChatAssistant() {
         <CardHeader className="flex flex-row items-center justify-between p-4 border-b shrink-0 bg-card">
           <div className="flex items-center gap-3">
             <SakaiLogo className="h-9 w-9 text-primary" />
-            <CardTitle className="text-2xl font-semibold text-foreground"> {/* Simplified CardTitle */}
+            <CardTitle className="text-2xl font-semibold">
               Sakai
             </CardTitle>
           </div>
@@ -542,8 +540,14 @@ export function ChatAssistant() {
                 </DropdownMenuItem>
                  <DropdownMenuItem asChild>
                   <Link href="/sakai-builder">
-                    <Zap className="mr-2 h-4 w-4" /> {/* Changed icon for builder */}
+                    <Zap className="mr-2 h-4 w-4" />
                     Sakai Builder
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/sakai-inpainter">
+                    <Brush className="mr-2 h-4 w-4" />
+                    Sakai Inpainter
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsDevCodePromptOpen(true)}>
@@ -670,8 +674,6 @@ export function ChatAssistant() {
                 </div>
             </div>
           )}
-
-          {/* Popover for image settings is removed */}
 
            <form onSubmit={handleSendMessage} className="flex w-full items-center gap-3">
             <input
@@ -862,5 +864,3 @@ export function ChatAssistant() {
     </div>
   );
 }
-
-    
