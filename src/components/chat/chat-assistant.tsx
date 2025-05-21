@@ -2,15 +2,46 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent, ChangeEvent, Fragment } from 'react';
-import NextImage from 'next/image'; // Renamed to NextImage to avoid conflict
+import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Send, Loader2, User, Bot, Mic, Paperclip, XCircle, FileText, Copy, Check,
-  ImageIcon, Laugh, Lightbulb, Languages, Sparkles // Added Sparkles and other feature icons
+import { 
+  Send, Loader2, User, Bot, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
+  Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
+  ImageIcon, Laugh, Lightbulb, Languages, Sparkles, Trash2 // Added Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -18,10 +49,11 @@ import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatM
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { SakaiLogo } from '@/components/icons/logo';
+import { ThemeToggleButton } from './theme-toggle-button';
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-// Import languages you want to support
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
@@ -34,7 +66,6 @@ import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp';
 import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
 import shell from 'react-syntax-highlighter/dist/esm/languages/prism/shell-session';
-
 
 SyntaxHighlighter.registerLanguage('tsx', tsx);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -56,7 +87,6 @@ SyntaxHighlighter.registerLanguage('shell', shell);
 SyntaxHighlighter.registerLanguage('sh', shell);
 SyntaxHighlighter.registerLanguage('bash', shell);
 
-
 interface UploadedFileWrapper {
   dataUri: string;
   file: File;
@@ -69,7 +99,7 @@ interface ChatAssistantProps {
   userMemory: string;
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
-  activeChatId: string | null; // To know when to show welcome message
+  activeChatId: string | null;
 }
 
 
@@ -89,13 +119,12 @@ export function ChatAssistant({
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
   const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false);
 
-
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // Moved featureActions inside the component
+  // Moved featureActions inside the component to ensure icons are initialized
   const featureActions = [
     { id: 'generate-image', label: "Générer une image", icon: ImageIcon, promptPrefix: "Génère une image de " },
     { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
@@ -103,11 +132,9 @@ export function ChatAssistant({
     { id: 'translate-text', label: "Traduire un texte", icon: Languages, promptPrefix: "Traduis ce texte en anglais : " },
   ];
 
-
   useEffect(() => {
     setMessages(initialMessages);
   }, [initialMessages, activeChatId]);
-
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
@@ -125,7 +152,6 @@ export function ChatAssistant({
       inputRef.current.focus();
     }
   }, [isLoading, isFeaturesPopoverOpen]);
-
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -202,7 +228,6 @@ export function ChatAssistant({
     }
   };
 
-
   const handleImageGeneration = async (prompt: string) => {
     setIsLoading(true);
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
@@ -215,7 +240,6 @@ export function ChatAssistant({
     }];
     setMessages(updatedMessagesWithPlaceholder);
     onMessagesUpdate(updatedMessagesWithPlaceholder);
-
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt });
@@ -262,7 +286,6 @@ export function ChatAssistant({
     }
   };
 
-
   const handleSendMessage = async (e?: FormEvent<HTMLFormElement> | string) => {
     if (typeof e === 'object' && e?.preventDefault) e.preventDefault();
 
@@ -273,7 +296,7 @@ export function ChatAssistant({
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
     for (const keyword of imageKeywords) {
-        if (lowerInput.includes(keyword)) {
+        if (lowerInput.startsWith(keyword)) { // Changed to startsWith for more precision
             isImageRequestIntent = true;
             break;
         }
@@ -307,7 +330,7 @@ export function ChatAssistant({
             else mimeType = 'application/octet-stream';
         }
       newUserMessageParts.push({
-        type: 'image', // Using 'image' type for generic media, relying on mimeType
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -334,15 +357,12 @@ export function ChatAssistant({
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId };
     updatedMessages = [...updatedMessages, assistantPlaceholderMessage];
     setMessages(updatedMessages);
-    onMessagesUpdate(updatedMessages); // Update parent with user message and placeholder
+    onMessagesUpdate(updatedMessages); 
 
-
-    const currentHistory = messages.filter(msg => // Use 'messages' state before adding new user msg for history
+    const currentHistory = messages.filter(msg => 
       !(msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image'))
     );
-    // Add the new user message to history for the API call
     const historyForApi = [...currentHistory, newUserMessage];
-
 
     try {
       const readableStream = await streamChatAssistant({
@@ -375,7 +395,7 @@ export function ChatAssistant({
                 ? { ...msg, parts: [{type: 'text', text: accumulatedText }] }
                 : msg
             );
-            onMessagesUpdate(newMsgs); // Update parent during streaming
+            onMessagesUpdate(newMsgs); 
             return newMsgs;
           });
         }
@@ -394,7 +414,7 @@ export function ChatAssistant({
             ? { ...msg, parts: [{ type: 'text', text: errorMessage }] }
             : msg
         );
-        onMessagesUpdate(newMsgs); // Update parent with error message
+        onMessagesUpdate(newMsgs); 
         return newMsgs;
       });
     } finally {
@@ -408,7 +428,6 @@ export function ChatAssistant({
     setIsFeaturesPopoverOpen(false);
     inputRef.current?.focus();
   };
-
 
   const handleCopyCode = (codeToCopy: string, partId: string) => {
     navigator.clipboard.writeText(codeToCopy).then(() => {
@@ -499,7 +518,7 @@ export function ChatAssistant({
       const isImageFile = part.mimeType?.startsWith('image/');
       if (isImageFile) {
         return (
-          <NextImage // Using NextImage
+          <NextImage
             key={uniquePartKey}
             src={part.imageDataUri}
             alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
@@ -509,7 +528,7 @@ export function ChatAssistant({
             data-ai-hint="user uploaded"
           />
         );
-      } else { // For PDF, TXT, MD previews
+      } else { 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground">
             <FileText className="h-6 w-6 text-primary shrink-0" />
@@ -524,22 +543,21 @@ export function ChatAssistant({
     return null;
   };
 
-
   return (
-    <div className="flex flex-col h-full bg-background text-foreground">
-      <CardHeader className="shrink-0 border-b">
-        <CardTitle className="text-xl font-semibold">Session de Chat</CardTitle>
+    <div className="flex flex-col h-full bg-card text-card-foreground">
+      <CardHeader className="shrink-0 border-b p-4">
+        <CardTitle className="text-lg font-semibold text-foreground">Session de Chat</CardTitle>
       </CardHeader>
 
         <CardContent className="flex-1 p-0 overflow-hidden">
-          <ScrollArea ref={scrollAreaRef} className="h-full bg-background/30 dark:bg-background/50">
+          <ScrollArea ref={scrollAreaRef} className="h-full bg-background/60 dark:bg-black/10">
             <div className="p-4 sm:p-6 space-y-6">
               {messages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-4">
                    <Sparkles className="h-16 w-16 text-primary opacity-70 mb-2" data-ai-hint="magic sparkle" />
                   <p className="text-2xl font-medium">Comment puis-je vous aider aujourd'hui ?</p>
                   <p className="text-base max-w-md">
-                    Utilisez les icônes ci-dessous pour des actions rapides ou tapez votre question.
+                    Posez une question, demandez de générer une image, ou utilisez les fonctionnalités via l'icône ✨.
                   </p>
                 </div>
               )}

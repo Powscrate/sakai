@@ -10,6 +10,7 @@ import useLocalStorage from '@/hooks/use-local-storage';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
 import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from "@/components/ui/input"; // Added missing Input import
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +65,7 @@ export default function ChatPage() {
   
   const [isFeaturesDialogOpen, setIsFeaturesDialogOpen] = useState(false);
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
-  const [isContactDialogOpen, setIsContactDialogOpen] = useState(false); // New state for contact dialog
+  const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
   
   const [isDevCodePromptOpen, setIsDevCodePromptOpen] = useState(false);
   const [devCodeInput, setDevCodeInput] = useState('');
@@ -78,7 +79,6 @@ export default function ChatPage() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-
   useEffect(() => {
     setPageIsMounted(true);
   }, []);
@@ -90,7 +90,6 @@ export default function ChatPage() {
     }
   }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted]);
 
-
   const handleNewChat = useCallback(() => {
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
@@ -101,8 +100,8 @@ export default function ChatPage() {
     };
     setChatSessions(prevSessions => [newChatSession, ...prevSessions]);
     setActiveChatId(newChatId);
-  }, [setChatSessions, setActiveChatId]);
-
+    if (isMobileMenuOpen) setIsMobileMenuOpen(false); // Close mobile menu on new chat
+  }, [setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
 
   useEffect(() => {
     if (!pageIsMounted) return;
@@ -110,15 +109,19 @@ export default function ChatPage() {
     if (!user) {
       router.push('/auth/login');
     } else {
-      // User is "logged in"
       if (chatSessions.length === 0) {
         handleNewChat();
       } else if (!activeChatId || !chatSessions.find(cs => cs.id === activeChatId)) {
-        setActiveChatId(chatSessions[0].id);
+        setActiveChatId(chatSessions[0]?.id || null); // Fallback to null if chatSessions[0] is undefined
+        if (!chatSessions.find(cs => cs.id === activeChatId) && chatSessions.length > 0) {
+            // If after attempting to set, activeChatId is still invalid but there are sessions, set to first
+             setActiveChatId(chatSessions[0].id);
+        } else if (chatSessions.length === 0) { // Double check if it became empty
+            handleNewChat();
+        }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, user, router, handleNewChat]); // chatSessions and setActiveChatId setters are stable
+  }, [pageIsMounted, user, router, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
 
   const activeChatMessages = chatSessions.find(cs => cs.id === activeChatId)?.messages || [];
 
@@ -126,7 +129,6 @@ export default function ChatPage() {
     setChatSessions(prevSessions =>
       prevSessions.map(session => {
         if (session.id === activeChatId) {
-          // Auto-generate title from the first user message if it's still "Nouveau Chat"
           let newTitle = session.title;
           if (newTitle === "Nouveau Chat" && updatedMessages.length > 0) {
             const firstUserMessage = updatedMessages.find(m => m.role === 'user' && m.parts[0]?.type === 'text');
@@ -148,7 +150,8 @@ export default function ChatPage() {
         if (newSessions.length > 0) {
           setActiveChatId(newSessions[0].id);
         } else {
-          setActiveChatId(null); // This will trigger handleNewChat in the useEffect
+          // No active chat to set, handleNewChat will be triggered by useEffect
+          setActiveChatId(null); 
         }
       }
       return newSessions;
@@ -157,10 +160,10 @@ export default function ChatPage() {
   };
   
   const handleLogout = () => {
-    setUser(null); // Clears user from localStorage
+    setUser(null); 
     setChatSessions([]);
     setActiveChatId(null);
-    // No router.push here, the useEffect will handle redirection
+    // useEffect will handle redirection to login page
   };
 
   const handleSaveMemory = (newMemory: string) => {
@@ -175,7 +178,7 @@ export default function ChatPage() {
     if (devCodeInput === DEV_ACCESS_CODE) {
       setIsDevCodePromptOpen(false);
       setDevCodeInput('');
-      setTempOverrideSystemPrompt(devOverrideSystemPrompt); // Ensure temp states are synced before opening
+      setTempOverrideSystemPrompt(devOverrideSystemPrompt);
       setTempModelTemperature(devModelTemperature ?? 0.7);
       setIsDevSettingsOpen(true);
       toast({
@@ -206,14 +209,14 @@ export default function ChatPage() {
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setDevOverrideSystemPrompt('');
-    setDevModelTemperature(undefined);
+    setDevModelTemperature(undefined); // Use undefined for localStorage removal
     toast({
       title: "Paramètres développeur réinitialisés",
       description: "Les paramètres par défaut sont restaurés.",
     });
   };
 
-  if (!pageIsMounted || !user) { // Show loader until page is mounted AND user is resolved
+  if (!pageIsMounted || !user) { 
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -227,7 +230,10 @@ export default function ChatPage() {
       <ChatSidebar
         chatSessions={chatSessions}
         activeChatId={activeChatId}
-        onSelectChat={setActiveChatId}
+        onSelectChat={(id) => {
+          setActiveChatId(id);
+          if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+        }}
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
         onLogout={handleLogout}
@@ -242,7 +248,7 @@ export default function ChatPage() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {activeChatId ? (
           <ChatAssistant
-            key={activeChatId} // Important to re-mount ChatAssistant when chat changes
+            key={activeChatId} 
             initialMessages={activeChatMessages}
             onMessagesUpdate={handleMessagesUpdate}
             userMemory={userMemory}
@@ -259,9 +265,7 @@ export default function ChatPage() {
 
       <MemoryDialog
         isOpen={isMemoryDialogOpen}
-        onOpenChange={(open) => {
-          setIsMemoryDialogOpen(open);
-        }}
+        onOpenChange={setIsMemoryDialogOpen}
         currentMemory={userMemory}
         onSaveMemory={handleSaveMemory}
       />
@@ -296,7 +300,7 @@ export default function ChatPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
-              <p className="mb-2">Sakai est votre assistant IA personnel, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
+              <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique entraîné par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle (via Genkit et les modèles Gemini de Google) pour vous offrir une expérience interactive et enrichissante.</p>
               <p>Version: 1.8.0 (Intégration Menu Fonctionnalités)</p>
               <p className="mt-4 text-xs text-muted-foreground">
@@ -404,7 +408,7 @@ export default function ChatPage() {
                 </Button>
                 <DialogClose asChild>
                     <Button type="button" variant="ghost" onClick={()=> {
-                      if (pageIsMounted) { // Check if mounted before accessing localStorage synced states
+                      if (pageIsMounted) {
                         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
                         setTempModelTemperature(devModelTemperature ?? 0.7);
                       }
