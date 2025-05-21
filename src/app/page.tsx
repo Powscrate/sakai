@@ -2,13 +2,13 @@
 // src/app/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
 import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
-import type { ChatMessage, ChatMessagePart } from '@/ai/flows/chat-assistant-flow'; // ChatMessagePart import added
-import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare, Mail, Plane, Lightbulb, Languages, ImageIcon, Brush } from 'lucide-react';
+import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
 import {
@@ -34,21 +34,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from '@/hooks/use-toast';
-import { auth, db } from '@/lib/firebase'; 
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot, addDoc, doc, setDoc, deleteDoc, serverTimestamp, Timestamp, where, getDocs, writeBatch } from 'firebase/firestore';
 import useLocalStorage from '@/hooks/use-local-storage';
 
-
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: Timestamp | number; // Can be Firestore Timestamp or number for optimistic updates
+  createdAt: Timestamp | Date; // Allow Date for optimistic updates before server timestamp
   userId: string;
-  // messages are now in a subcollection
 }
 
-// Keys for localStorage for non-chat related data
 const getUserMemoryKey = (userId: string | undefined) => userId ? `sakaiUserMemory_${userId}` : 'sakaiUserMemory_anonymous';
 const getDevOverrideSystemPromptKey = (userId: string | undefined) => userId ? `sakaiDevOverrideSystemPrompt_${userId}` : 'sakaiDevOverrideSystemPrompt_anonymous';
 const getDevModelTemperatureKey = (userId: string | undefined) => userId ? `sakaiDevModelTemperature_${userId}` : 'sakaiDevModelTemperature_anonymous';
@@ -69,11 +66,10 @@ export default function ChatPage() {
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
 
-  // User-specific settings from localStorage
   const [userMemory, setUserMemory] = useLocalStorage<string>(getUserMemoryKey(currentUser?.uid), '');
   const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>(getDevOverrideSystemPromptKey(currentUser?.uid), '');
   const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
-  
+
   const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false);
   const [isFeaturesDialogOpen, setIsFeaturesDialogOpen] = useState(false);
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
@@ -90,13 +86,13 @@ export default function ChatPage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
-      if (!user && pageIsMounted) { // Ensure pageIsMounted to avoid premature redirect
+      if (!user && pageIsMounted) {
         router.push('/auth/login');
       }
     });
     return () => unsubscribe();
-  }, [router, pageIsMounted]); // Added pageIsMounted
-  
+  }, [router, pageIsMounted]);
+
   useEffect(() => {
     if (pageIsMounted && currentUser) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
@@ -104,10 +100,30 @@ export default function ChatPage() {
     }
   }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted, currentUser]);
 
+  const handleNewChat = useCallback(async () => {
+    if (!currentUser) return;
+
+    const newChatSessionData = {
+      title: "Nouveau Chat",
+      createdAt: serverTimestamp(),
+      userId: currentUser.uid,
+    };
+    try {
+      const sessionsCol = collection(db, `userChats/${currentUser.uid}/sessions`);
+      const docRef = await addDoc(sessionsCol, newChatSessionData);
+      setActiveChatId(docRef.id);
+      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+    } catch (error) {
+      console.error("Error creating new chat:", error);
+      toast({ title: "Erreur", description: "Impossible de créer un nouveau chat. Vérifiez votre connexion ou les permissions Firestore.", variant: "destructive" });
+    }
+  }, [currentUser, isMobileMenuOpen, toast]); // Removed setIsMobileMenuOpen from deps, it's a setter
+
   // Fetch chat sessions from Firestore
   useEffect(() => {
     if (!currentUser || !pageIsMounted) {
       setSessionsLoading(false);
+      setChatSessions([]); // Clear sessions if no user
       return;
     }
     setSessionsLoading(true);
@@ -120,25 +136,31 @@ export default function ChatPage() {
         fetchedSessions.push({ id: doc.id, ...doc.data() } as ChatSession);
       });
       setChatSessions(fetchedSessions);
-      if (fetchedSessions.length > 0 && !activeChatId) {
-        setActiveChatId(fetchedSessions[0].id);
-      } else if (fetchedSessions.length === 0) {
-        handleNewChat(); // Create a new chat if none exist for the user
+
+      if (fetchedSessions.length > 0) {
+        if (!activeChatId || !fetchedSessions.find(s => s.id === activeChatId)) {
+          setActiveChatId(fetchedSessions[0].id);
+        }
+      } else {
+        // No sessions exist, create one
+        handleNewChat();
       }
       setSessionsLoading(false);
     }, (error) => {
       console.error("Error fetching chat sessions:", error);
-      toast({ title: "Erreur", description: "Impossible de charger les sessions de chat.", variant: "destructive" });
+      toast({ title: "Erreur de Sessions", description: "Impossible de charger les sessions de chat. Vérifiez vos règles Firestore.", variant: "destructive" });
       setSessionsLoading(false);
     });
 
     return () => unsubscribeSessions();
-  }, [currentUser, pageIsMounted, activeChatId]); // Removed handleNewChat from deps
+  }, [currentUser, pageIsMounted, activeChatId, handleNewChat, toast]);
+
 
   // Fetch messages for the active chat
   useEffect(() => {
     if (!currentUser || !activeChatId || !pageIsMounted) {
-      setActiveChatMessages([]); // Clear messages if no active chat or user
+      setActiveChatMessages([]);
+      setMessagesLoading(false);
       return;
     }
     setMessagesLoading(true);
@@ -146,103 +168,65 @@ export default function ChatPage() {
     const q = query(messagesCol, orderBy("createdAt", "asc"));
 
     const unsubscribeMessages = onSnapshot(q, (snapshot) => {
-      const fetchedMessages: ChatMessage[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        fetchedMessages.push({ 
-          id: doc.id, 
-          role: data.role,
-          parts: data.parts,
-          createdAt: data.createdAt // Assuming createdAt is stored directly
-        } as ChatMessage);
-      });
+      const fetchedMessages: ChatMessage[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as ChatMessage));
       setActiveChatMessages(fetchedMessages);
       setMessagesLoading(false);
     }, (error) => {
       console.error("Error fetching messages:", error);
-      toast({ title: "Erreur", description: "Impossible de charger les messages.", variant: "destructive" });
+      toast({ title: "Erreur de Messages", description: "Impossible de charger les messages. Vérifiez vos règles Firestore.", variant: "destructive" });
       setMessagesLoading(false);
     });
     return () => unsubscribeMessages();
-  }, [currentUser, activeChatId, pageIsMounted]);
+  }, [currentUser, activeChatId, pageIsMounted, toast]);
 
-
-  const handleNewChat = useCallback(async () => {
-    if (!currentUser) return; 
-    
-    const newChatSessionData = {
-      title: "Nouveau Chat",
-      createdAt: serverTimestamp(),
-      userId: currentUser.uid,
-    };
-    try {
-      const sessionsCol = collection(db, `userChats/${currentUser.uid}/sessions`);
-      const docRef = await addDoc(sessionsCol, newChatSessionData);
-      setActiveChatId(docRef.id); // Set active to the new chat
-      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-    } catch (error) {
-      console.error("Error creating new chat:", error);
-      toast({ title: "Erreur", description: "Impossible de créer un nouveau chat.", variant: "destructive" });
-    }
-  }, [currentUser, isMobileMenuOpen, setIsMobileMenuOpen]);
 
   const handleMessagesUpdate = async (updatedMessages: ChatMessage[]) => {
     if (!currentUser || !activeChatId) return;
 
-    // Get the latest message (presumably the new one added by user or AI)
     const latestMessage = updatedMessages[updatedMessages.length - 1];
     if (!latestMessage) return;
 
-    // Check if the message already exists in Firestore to avoid duplicates
-    // This check is simplified; in a real app, you'd ensure message IDs are unique before adding.
-    const existingMessage = activeChatMessages.find(m => m.id === latestMessage.id);
-    if (existingMessage && latestMessage.id) { // only skip if ID is present and matches
-        // This message is likely already being streamed or was just added,
-        // Firestore listener will handle UI update.
-        // For title update, we can still proceed if it's a user message
-    } else if (latestMessage.id) { // If there's an ID, try to set it (might be optimistic from client)
-      const messageRef = doc(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`, latestMessage.id);
-      try {
-        await setDoc(messageRef, {
-          ...latestMessage,
-          createdAt: latestMessage.createdAt || serverTimestamp() // Use existing or new server timestamp
-        });
-      } catch (error) {
-        console.error("Error updating message (setDoc):", error);
+    const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`);
+    try {
+      // Add new message to Firestore.
+      // We assume latestMessage does not have an ID yet if it's truly new from client,
+      // or if it's from AI, its ID was generated client-side for optimistic update.
+      // Firestore will generate its own ID if one isn't provided or doesn't exist.
+      // For simplicity, let's assume we just add it.
+      // If latestMessage has an ID from optimistic UI update, Firestore will use it if doc doesn't exist, or update if it does.
+      // If we *always* want a new doc for each call, ensure no ID or use addDoc.
+      const messageData = {
+        ...latestMessage,
+        createdAt: latestMessage.createdAt instanceof Timestamp ? latestMessage.createdAt : serverTimestamp()
+      };
+      if (latestMessage.id && typeof latestMessage.id === 'string') {
+        await setDoc(doc(messagesCol, latestMessage.id), messageData);
+      } else {
+        await addDoc(messagesCol, messageData);
       }
-    } else { // No ID, so it's a new message to add
-       const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`);
-        try {
-            await addDoc(messagesCol, {
-              ...latestMessage,
-              createdAt: serverTimestamp() // Always use server timestamp for new messages
-            });
-        } catch (error) {
-            console.error("Error adding new message (addDoc):", error);
-        }
-    }
 
 
-    // Update chat title if it's "Nouveau Chat" and a user message is added
-    const currentSession = chatSessions.find(s => s.id === activeChatId);
-    if (currentSession && (currentSession.title === "Nouveau Chat" || currentSession.title === "Nouvelle Discussion")) {
+      const currentSession = chatSessions.find(s => s.id === activeChatId);
+      if (currentSession && (currentSession.title === "Nouveau Chat" || currentSession.title === "Nouvelle Discussion")) {
         const firstUserMessage = updatedMessages.find(m => m.role === 'user' && m.parts[0]?.type === 'text');
         if (firstUserMessage && firstUserMessage.parts[0].type === 'text') {
-            const newTitle = firstUserMessage.parts[0].text.substring(0, 30) + (firstUserMessage.parts[0].text.length > 30 ? '...' : '');
-            const sessionRef = doc(db, `userChats/${currentUser.uid}/sessions/${activeChatId}`);
-            try {
-                await setDoc(sessionRef, { title: newTitle }, { merge: true });
-            } catch (error) {
-                console.error("Error updating chat title:", error);
-            }
+          const newTitle = firstUserMessage.parts[0].text.substring(0, 30) + (firstUserMessage.parts[0].text.length > 30 ? '...' : '');
+          const sessionRef = doc(db, `userChats/${currentUser.uid}/sessions/${activeChatId}`);
+          await setDoc(sessionRef, { title: newTitle }, { merge: true });
         }
+      }
+    } catch (error) {
+      console.error("Error updating/adding message or title:", error);
+      toast({ title: "Erreur de Sauvegarde", description: "Impossible de sauvegarder le message. Vérifiez vos règles Firestore.", variant: "destructive" });
     }
   };
 
   const handleDeleteChat = async (idToDelete: string) => {
     if (!currentUser) return;
     try {
-      // Delete all messages in the chat session's subcollection first
       const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${idToDelete}/messages`);
       const messagesSnapshot = await getDocs(messagesCol);
       const batch = writeBatch(db);
@@ -251,35 +235,28 @@ export default function ChatPage() {
       });
       await batch.commit();
 
-      // Then delete the chat session document itself
       const sessionRef = doc(db, `userChats/${currentUser.uid}/sessions/${idToDelete}`);
       await deleteDoc(sessionRef);
 
       toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
       if (activeChatId === idToDelete) {
-         setActiveChatId(null); // Active chat will be reset by session listener or new chat creation
+        setActiveChatId(null); // Will trigger useEffect to select a new chat or create one
       }
     } catch (error) {
       console.error("Error deleting chat:", error);
-      toast({ title: "Erreur", description: "Impossible de supprimer le chat.", variant: "destructive" });
+      toast({ title: "Erreur de Suppression", description: "Impossible de supprimer le chat. Vérifiez vos règles Firestore.", variant: "destructive" });
     }
   };
-  
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // Clear local states tied to user
+      // Clear states related to user specific data
       setChatSessions([]);
       setActiveChatId(null);
       setActiveChatMessages([]);
-      // Keep userMemory etc. in localStorage as they are keyed by UID, 
-      // they will be reloaded for the next user or cleared if a new user never had them.
-      // Or explicitly clear them:
-      // setUserMemory(''); 
-      // setDevOverrideSystemPrompt('');
-      // setDevModelTemperature(undefined);
-
-      toast({ title: "Déconnexion", description: "Vous avez été déconnecté."});
+      // userMemory, etc. are handled by useLocalStorage hook with changing keys
+      toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
       // onAuthStateChanged will trigger redirect to /auth/login
     } catch (error) {
       console.error("Logout error:", error);
@@ -288,7 +265,7 @@ export default function ChatPage() {
   };
 
   const handleSaveMemory = (newMemory: string) => {
-    setUserMemory(newMemory); // This will save to localStorage via the hook
+    setUserMemory(newMemory);
     toast({
       title: "Mémoire sauvegardée",
       description: "Sakai utilisera ces informations pour ses prochaines réponses.",
@@ -299,7 +276,7 @@ export default function ChatPage() {
     if (devCodeInput === DEV_ACCESS_CODE) {
       setIsDevCodePromptOpen(false);
       setDevCodeInput('');
-      if (pageIsMounted && currentUser) { // Ensure these are set only if ready
+      if (pageIsMounted && currentUser) {
         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
         setTempModelTemperature(devModelTemperature ?? 0.7);
       }
@@ -332,14 +309,14 @@ export default function ChatPage() {
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setDevOverrideSystemPrompt('');
-    setDevModelTemperature(undefined); 
+    setDevModelTemperature(undefined);
     toast({
       title: "Paramètres développeur réinitialisés",
       description: "Les paramètres par défaut sont restaurés.",
     });
   };
 
-  if (!pageIsMounted || authLoading) { 
+  if (!pageIsMounted || authLoading) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -347,9 +324,9 @@ export default function ChatPage() {
       </div>
     );
   }
-  
-  if (!currentUser) { // Should be handled by onAuthStateChanged redirect, but as a fallback
-     return (
+
+  if (!currentUser) { // Should be handled by onAuthStateChanged redirect
+    return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
         <p className="mt-4 text-muted-foreground">Redirection vers la page de connexion...</p>
@@ -381,20 +358,20 @@ export default function ChatPage() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {activeChatId && !messagesLoading ? (
           <ChatAssistant
-            key={activeChatId} // Important to re-mount component on chat change
+            key={activeChatId}
             initialMessages={activeChatMessages}
             onMessagesUpdate={handleMessagesUpdate}
             userMemory={userMemory}
             devOverrideSystemPrompt={devOverrideSystemPrompt}
             devModelTemperature={devModelTemperature}
-            activeChatId={activeChatId} // Pass activeChatId
+            activeChatId={activeChatId}
           />
         ) : (
-           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4">
-             <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-            {sessionsLoading || messagesLoading ? <p>Chargement des discussions...</p> : 
-             chatSessions.length > 0 ? <p>Sélectionnez un chat pour continuer ou créez-en un nouveau.</p> : 
-             <p>Créez un "Nouveau Chat" pour commencer.</p>}
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+            {sessionsLoading || messagesLoading ? <p>Chargement des discussions...</p> :
+              chatSessions.length > 0 ? <p>Sélectionnez un chat pour continuer ou créez-en un nouveau.</p> :
+                <p>Créez un "Nouveau Chat" pour commencer.</p>}
           </div>
         )}
       </main>
@@ -409,7 +386,7 @@ export default function ChatPage() {
       <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">Fonctionnalités de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">
               Sakai est un assistant IA polyvalent conçu pour vous aider dans diverses tâches :
               <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
@@ -434,7 +411,7 @@ export default function ChatPage() {
       <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">À propos de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
               <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique créé par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle pour vous offrir une expérience interactive et enrichissante.</p>
@@ -450,19 +427,19 @@ export default function ChatPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><Contact className="h-5 w-5 text-primary"/>Contacter le développeur</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">Contacter le développeur</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
               <p>Vous pouvez contacter MAMPIONONTIAKO Tantely Etienne Théodore via WhatsApp :</p>
               <Button variant="link" asChild className="text-lg p-0 h-auto mt-2">
                 <a href="https://wa.me/261343775058" target="_blank" rel="noopener noreferrer">
-                  <MessageSquare className="mr-2 h-5 w-5" /> +261 34 37 750 58
+                  +261 34 37 750 58
                 </a>
               </Button>
-               <p className="text-xs text-muted-foreground mt-3">Ou par email : <a href="mailto:tantely@gmail.com" className="underline">tantely@gmail.com</a></p>
+              <p className="text-xs text-muted-foreground mt-3">Ou par email : <a href="mailto:tantely@gmail.com" className="underline">tantely@gmail.com</a></p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -474,7 +451,7 @@ export default function ChatPage() {
       <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">Accès Mode Développeur</AlertDialogTitle>
             <AlertDialogDescription>
               Veuillez entrer le code d'accès pour modifier les paramètres avancés du modèle.
             </AlertDialogDescription>
@@ -489,7 +466,7 @@ export default function ChatPage() {
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {setDevCodeInput(''); setIsDevCodePromptOpen(false);}}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel>
             <AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -497,66 +474,66 @@ export default function ChatPage() {
 
       <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
         <DialogContent className="sm:max-w-[600px] bg-card">
-            <DialogHeader>
-                <DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Paramètres Développeur</DialogTitle>
-                <DialogDescription>
-                    Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis et peuvent affecter la qualité des réponses.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-6 py-4">
-                <div className="grid gap-2">
-                    <Label htmlFor="dev-system-prompt" className="text-sm font-medium">
-                        System Prompt Personnalisé :
-                    </Label>
-                    <Textarea
-                        id="dev-system-prompt"
-                        placeholder="Laisse vide pour utiliser l'invite système par défaut de Sakai. Sinon, entre ton propre délire ici..."
-                        value={tempOverrideSystemPrompt}
-                        onChange={(e) => setTempOverrideSystemPrompt(e.target.value)}
-                        className="min-h-[150px] text-sm p-3 rounded-md border bg-background"
-                        rows={8}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                        L'invite système de base sera remplacée par ce texte. La mémoire utilisateur sera toujours ajoutée après.
-                    </p>
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="dev-temperature" className="text-sm font-medium">
-                        Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span>
-                    </Label>
-                    <Slider
-                        id="dev-temperature"
-                        min={0}
-                        max={1}
-                        step={0.1}
-                        value={[tempModelTemperature]}
-                        onValueChange={(value) => setTempModelTemperature(value[0])}
-                        className="w-full"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                        Plus bas = plus factuel/carré. Plus haut = plus créatif/part en freestyle. (Défaut: 0.7)
-                    </p>
-                </div>
+          <DialogHeader>
+            <DialogTitle className="text-xl flex items-center gap-2">Paramètres Développeur</DialogTitle>
+            <DialogDescription>
+              Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis et peuvent affecter la qualité des réponses.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="dev-system-prompt" className="text-sm font-medium">
+                System Prompt Personnalisé :
+              </Label>
+              <Textarea
+                id="dev-system-prompt"
+                placeholder="Laisse vide pour utiliser l'invite système par défaut de Sakai. Sinon, entre ton propre délire ici..."
+                value={tempOverrideSystemPrompt}
+                onChange={(e) => setTempOverrideSystemPrompt(e.target.value)}
+                className="min-h-[150px] text-sm p-3 rounded-md border bg-background"
+                rows={8}
+              />
+              <p className="text-xs text-muted-foreground">
+                L'invite système de base sera remplacée par ce texte. La mémoire utilisateur sera toujours ajoutée après.
+              </p>
             </div>
-            <DialogFooter className="gap-2 sm:gap-0">
-                <Button type="button" variant="outline" onClick={handleResetDevSettings}>
-                    Reset aux réglages d'usine
-                </Button>
-                <DialogClose asChild>
-                    <Button type="button" variant="ghost" onClick={()=> {
-                      if (pageIsMounted && currentUser) {
-                        setTempOverrideSystemPrompt(devOverrideSystemPrompt);
-                        setTempModelTemperature(devModelTemperature ?? 0.7);
-                      }
-                      setIsDevSettingsOpen(false);
-                    }}>
-                        Annuler
-                    </Button>
-                </DialogClose>
-                <Button type="button" onClick={handleSaveDevSettings}>
-                    Sauvegarder les Réglages
-                </Button>
-            </DialogFooter>
+            <div className="grid gap-2">
+              <Label htmlFor="dev-temperature" className="text-sm font-medium">
+                Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span>
+              </Label>
+              <Slider
+                id="dev-temperature"
+                min={0}
+                max={1}
+                step={0.1}
+                value={[tempModelTemperature]}
+                onValueChange={(value) => setTempModelTemperature(value[0])}
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Plus bas = plus factuel/carré. Plus haut = plus créatif/part en freestyle. (Défaut: 0.7)
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={handleResetDevSettings}>
+              Reset aux réglages d'usine
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" onClick={() => {
+                if (pageIsMounted && currentUser) {
+                  setTempOverrideSystemPrompt(devOverrideSystemPrompt);
+                  setTempModelTemperature(devModelTemperature ?? 0.7);
+                }
+                setIsDevSettingsOpen(false);
+              }}>
+                Annuler
+              </Button>
+            </DialogClose>
+            <Button type="button" onClick={handleSaveDevSettings}>
+              Sauvegarder les Réglages
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

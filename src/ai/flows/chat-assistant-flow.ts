@@ -30,6 +30,7 @@ const ChatMessageSchema = z.object({
   role: z.enum(['user', 'model']),
   parts: z.array(ChatMessagePartSchema).describe("Le contenu du message, peut être un mélange de texte et d'images."),
   id: z.string().optional(),
+  createdAt: z.any().optional(), // Can be Firestore Timestamp, Date, or number
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -41,10 +42,9 @@ const ChatAssistantInputSchema = z.object({
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
-// This is the simplified chunk structure the UI will receive
 export type ChatStreamChunk = {
   text?: string;
-  error?: string; // For propagating stream errors
+  error?: string;
 };
 
 
@@ -60,7 +60,7 @@ Je suis là pour :
 - Traduire ce que tu veux, easy.
 - Te sortir des blagues, des infos insolites, ou des petites histoires qui tuent.
 - Brainstormer avec toi, être ton sparring partner pour tes idées les plus ouf.
-- Analyser les images, PDF, ou fichiers texte que tu m'envoies (même plusieurs d'un coup, je gère !).
+- Analyser les images, PDF, ou fichiers texte que tu m'envoies (même plusieurs d'un coup, je gère !). Utilise toutes tes capacités pour analyser en profondeur les documents volumineux.
 - Générer des images stylées à partir de tes descriptions.
 
 Si on me demande qui je suis ou qui m'a fabriqué, je dis direct que je suis un grand modèle linguistique, et c'est Tantely qui m'a codé. Il est au top !
@@ -89,88 +89,116 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
       const content: Part[] = msg.parts.map(part => {
         if (part.type === 'text') {
           return { text: part.text };
-        } else if (part.type === 'image') {
+        } else if (part.type === 'image' && part.imageDataUri) {
           let finalMimeType = part.mimeType;
-          if (!finalMimeType && part.imageDataUri) {
+          if (!finalMimeType) {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
             else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*'; 
-            else finalMimeType = 'application/octet-stream';
+            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*';
+            else finalMimeType = 'application/octet-stream'; // Fallback
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
-        console.warn("Partie de message inconnue lors du mappage :", part);
-        return { text: '[Partie de message non supportée]' };
-      }).filter(Boolean) as Part[];
+        console.warn("Partie de message inconnue ou invalide lors du mappage :", part);
+        return null; // Ignorer les parties non valides
+      }).filter(Boolean) as Part[]; // filter(Boolean) enlève les nulls
+
+      // S'assurer que content n'est pas vide, sinon Genkit peut lever une erreur
+      if (content.length === 0) {
+        // Si un message n'a pas de contenu valide après filtrage, on le saute.
+        // Ou on pourrait injecter un placeholder comme {text: "[contenu non supporté]"}
+        // Pour l'instant, on le saute pour éviter d'envoyer un message vide.
+        return null;
+      }
 
       return {
         role: msg.role as 'user' | 'model',
         content: content,
       };
-    });
+    }).filter(Boolean) as MessageData[]; // filter(Boolean) enlève les messages nulls
 
-  const modelConfigTemperature = input.temperature ?? 0.7;
+    // S'il n'y a pas de messages valides après le filtrage (peu probable mais possible)
+    if (messagesForApi.length === 0 && systemInstructionText) {
+        // Si on n'a que l'instruction système, on ne peut pas appeler l'API generate avec un tableau de messages vide
+        // On pourrait envoyer un message d'erreur au client.
+        // Pour l'instant, créons un flux qui envoie une erreur.
+        return new ReadableStream<ChatStreamChunk>({
+            start(controller) {
+                controller.enqueue({ error: "Aucun message valide à envoyer à l'assistant après filtrage." });
+                controller.close();
+            }
+        });
+    }
 
-  const { stream: genkitStream, response: genkitResponse } = ai.generateStream({
-    model: 'googleai/gemini-1.5-flash-latest',
-    systemInstruction: {text: systemInstructionText},
-    messages: messagesForApi,
-    config: {
-      temperature: modelConfigTemperature,
-       safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-      ]
-    },
-  });
+
+  const modelConfigTemperature = input.temperature ?? 0.7; // Gemini 1.5 Flash default is 0.9, 0.7 is common
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
       try {
+        const { stream: genkitStream, response: genkitResponsePromise } = ai.generateStream({
+          model: 'googleai/gemini-1.5-flash-latest',
+          systemInstruction: {text: systemInstructionText},
+          messages: messagesForApi,
+          config: {
+            temperature: modelConfigTemperature,
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            ]
+          },
+        });
+
+        // Process the stream from Genkit
         for await (const genkitChunk of genkitStream) {
           let currentText = "";
-          if (genkitChunk.text) {
+          if (genkitChunk.text) { // Genkit 1.x: chunk.text
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) {
+          } else if (genkitChunk.content) { // Also handle if content parts are streamed
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
               }
             }
           }
-          
           if (currentText) {
             controller.enqueue({ text: currentText });
           }
         }
-        await genkitResponse; 
+
+        // Wait for the full Genkit response to complete (handles potential errors post-stream)
+        await genkitResponsePromise;
+
       } catch (error: any) {
-        console.error("Erreur pendant le streaming côté serveur:", error);
+        console.error("Erreur pendant le streaming côté serveur (Genkit flow):", error);
+        let errorMessage = "Une erreur est survenue lors du traitement du flux.";
+        if (error.message) {
+            errorMessage = error.message;
+        } else if (error.cause?.message) {
+            errorMessage = error.cause.message;
+        }
+        
         try {
-            const message = error.cause?.message || error.message || "Une erreur est survenue lors du traitement du flux.";
-            controller.enqueue({ error: message });
+          controller.enqueue({ error: errorMessage });
         } catch (e) {
-            console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé):", e);
+          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur Genkit):", e);
         }
       } finally {
         try {
-            if (controller.desiredSize !== null && controller.desiredSize <= 0) {
-                 // Controller is likely closed or errored
-            } else {
-                 controller.close();
-            }
+          // Check if the controller is still active before trying to close
+          if (controller.desiredSize !== null) { // desiredSize is null if closed
+            controller.close();
+          }
         } catch (e) {
-             console.error("Erreur lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
+           console.error("Erreur lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
         }
       }
     }
   });
 }
-
-    
