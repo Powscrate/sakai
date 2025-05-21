@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Send, Loader2, User, Bot, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
   Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
-  Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye // Added Download and Eye
+  Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Ratio, Palette, Image as ImageIconLucide // Added Ratio, Palette, ImageIconLucide
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -45,10 +45,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Image as ImageIconLucide } from 'lucide-react'; // Explicit import for clarity
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
-import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
+import { generateImage, type GenerateImageOutput, type GenerateImageInput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -101,8 +103,30 @@ interface ChatAssistantProps {
   userMemory: string;
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
-  activeChatId: string | null;
+  activeChatId: string | null; // Passed from parent
 }
+
+const imageStyles = [
+  { value: "default", label: "Défaut" },
+  { value: "photorealistic", label: "Photoréaliste" },
+  { value: "cartoon", label: "Dessin animé" },
+  { value: "pixel_art", label: "Pixel Art" },
+  { value: "watercolor", label: "Aquarelle" },
+  { value: "fantasy", label: "Fantaisie" },
+  { value: "cyberpunk", label: "Cyberpunk" },
+  { value: "steampunk", label: "Steampunk" },
+  { value: "anime", label: "Animé" },
+  { value: "line_art", label: "Dessin au trait" },
+  { value: "isometric", label: "Isométrique" },
+];
+
+const imageAspectRatios = [
+  { value: "1:1", label: "Carré (1:1)" },
+  { value: "16:9", label: "Large (16:9)" },
+  { value: "9:16", label: "Portrait (9:16)" },
+  { value: "4:3", label: "Paysage (4:3)" },
+  { value: "3:4", label: "Portrait (3:4)" },
+];
 
 
 export function ChatAssistant({
@@ -119,11 +143,14 @@ export function ChatAssistant({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileWrapper[]>([]);
   const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
-  const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false);
   
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
 
+  // States for image generation popover
+  const [isImageSettingsPopoverOpen, setIsImageSettingsPopoverOpen] = useState(false);
+  const [imageStyle, setImageStyle] = useState<string>("default");
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>("1:1");
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,10 +180,20 @@ export function ChatAssistant({
   useEffect(scrollToBottom, [messages, isLoading]);
 
   useEffect(() => {
-    if (inputRef.current && !isLoading && !isFeaturesPopoverOpen && !isImagePreviewOpen) {
+    if (inputRef.current && !isLoading && !isImageSettingsPopoverOpen && !isImagePreviewOpen) {
       inputRef.current.focus();
     }
-  }, [isLoading, isFeaturesPopoverOpen, isImagePreviewOpen]);
+  }, [isLoading, isImageSettingsPopoverOpen, isImagePreviewOpen]);
+
+  // Effect to manage image settings popover visibility based on input
+  useEffect(() => {
+    if (input.startsWith("Génère une image de ") || input.startsWith("Dessine-moi ") || input.startsWith("Crée une image de ") || input.startsWith("Photo de ")) {
+      setIsImageSettingsPopoverOpen(true);
+    } else {
+      setIsImageSettingsPopoverOpen(false);
+    }
+  }, [input]);
+
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -233,44 +270,49 @@ export function ChatAssistant({
     }
   };
 
-  const handleImageGeneration = async (promptText: string) => {
+  const handleImageGeneration = async (basePromptText: string) => {
     setIsLoading(true);
+    setCurrentStreamingMessageId(null);
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
-    setCurrentStreamingMessageId(null); 
-    
+
     const userPromptMessage: ChatMessage = {
       role: 'user',
-      parts: [{type: 'text', text: promptText}],
+      parts: [{ type: 'text', text: basePromptText }],
       id: imageGenUserMessageId,
-      createdAt: Date.now() 
+      createdAt: Date.now(),
     };
 
     const assistantPlaceholderMessage: ChatMessage = {
       role: 'model',
-      parts: [{type: 'text', text: `Sakai génère une image pour : "${promptText}"...`}],
+      parts: [{ type: 'text', text: `Sakai génère une image pour : "${basePromptText}"...` }],
       id: imageGenPlaceholderId,
-      createdAt: Date.now() +1
+      createdAt: Date.now() + 1,
     };
-    
+
     const updatedMessagesWithPlaceholder = [...messages, userPromptMessage, assistantPlaceholderMessage];
     setMessages(updatedMessagesWithPlaceholder);
-    onMessagesUpdate(updatedMessagesWithPlaceholder); // Notify parent about user and placeholder
+    onMessagesUpdate(updatedMessagesWithPlaceholder);
+
+    const imageGenInput: GenerateImageInput = {
+      prompt: basePromptText,
+      style: imageStyle !== "default" ? imageStyle : undefined,
+      aspectRatio: imageAspectRatio !== "1:1" ? imageAspectRatio : undefined, // Assuming 1:1 is default for the model if not specified
+    };
 
     try {
-      const result: GenerateImageOutput = await generateImage({ prompt: promptText });
+      const result: GenerateImageOutput = await generateImage(imageGenInput);
       let finalMessages;
       if (result.imageUrl) {
-        finalMessages = messages.map((msg) => // Map over original messages + userPrompt
-            msg.id === imageGenUserMessageId ? userPromptMessage : msg 
+        finalMessages = messages.map((msg) =>
+          msg.id === imageGenUserMessageId ? userPromptMessage : msg
         );
         finalMessages = [...finalMessages, {
-            role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], // Assuming PNG
-            id: imageGenPlaceholderId, // Re-use ID for replacement
-            createdAt: Date.now() 
+          role: 'model' as 'model',
+          parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
+          id: imageGenPlaceholderId,
+          createdAt: Date.now(),
         }];
-
       } else {
         const errorMessage = result.error || "La génération d'image a échoué ou l'URL est manquante.";
         toast({
@@ -279,17 +321,21 @@ export function ChatAssistant({
           variant: "destructive",
         });
         finalMessages = messages.map((msg) =>
-            msg.id === imageGenUserMessageId ? userPromptMessage : msg
+          msg.id === imageGenUserMessageId ? userPromptMessage : msg
         );
         finalMessages = [...finalMessages, {
-            role: 'model' as 'model',
-            parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-            id: imageGenPlaceholderId, // Re-use ID
-            createdAt: Date.now()
+          role: 'model' as 'model',
+          parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
+          id: imageGenPlaceholderId,
+          createdAt: Date.now(),
         }];
       }
       setMessages(finalMessages);
       onMessagesUpdate(finalMessages);
+      // Reset image settings after generation
+      setImageStyle("default");
+      setImageAspectRatio("1:1");
+      setIsImageSettingsPopoverOpen(false);
 
     } catch (error: unknown) {
       console.error("Erreur de génération d'image (client):", error);
@@ -299,15 +345,15 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-       const finalMessages = messages.map((msg) =>
-            msg.id === imageGenUserMessageId ? userPromptMessage : msg
-        );
-        finalMessages = [...finalMessages, {
-            role: 'model' as 'model',
-            parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-            id: imageGenPlaceholderId, // Re-use ID
-            createdAt: Date.now()
-        }];
+      let finalMessages = messages.map((msg) => // Changed from const to let
+        msg.id === imageGenUserMessageId ? userPromptMessage : msg
+      );
+      finalMessages = [...finalMessages, {
+        role: 'model' as 'model',
+        parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
+        id: imageGenPlaceholderId,
+        createdAt: Date.now(),
+      }];
       setMessages(finalMessages);
       onMessagesUpdate(finalMessages);
     } finally {
@@ -324,7 +370,7 @@ export function ChatAssistant({
     const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de", "génère une photo de", "génère un dessin de", "crée une photo de", "crée un dessin de"];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
-    if (uploadedFiles.length === 0) { // Only check for keywords if no files are uploaded
+    if (uploadedFiles.length === 0) { 
         for (const keyword of imageKeywords) {
             if (lowerInput.startsWith(keyword)) {
                 isImageRequestIntent = true;
@@ -333,8 +379,8 @@ export function ChatAssistant({
         }
     }
     
-    if (isImageRequestIntent) { // No need to check uploadedFiles.length === 0 here, already handled
-      if (typeof e !== 'string') setInput(''); // Clear input field if it was a form submission
+    if (isImageRequestIntent) { 
+      if (typeof e !== 'string') setInput(''); 
       await handleImageGeneration(currentInput);
       return;
     }
@@ -356,7 +402,7 @@ export function ChatAssistant({
             else mimeType = 'application/octet-stream';
         }
       newUserMessageParts.push({
-        type: 'image', // Using 'image' type for all media, relying on mimeType for differentiation
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -372,23 +418,23 @@ export function ChatAssistant({
     
     let updatedMessages = [...messages, newUserMessage];
     setMessages(updatedMessages);
-    onMessagesUpdate(updatedMessages); // Notify parent of the new user message
+    onMessagesUpdate(updatedMessages); 
     
     if (typeof e !== 'string') setInput('');
     clearAllUploadedFiles();
+    setIsImageSettingsPopoverOpen(false); // Close popover on send
 
     setIsLoading(true);
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
     
-    // Add placeholder for assistant's response BEFORE calling API
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() +1 };
     updatedMessages = [...updatedMessages, assistantPlaceholderMessage];
     setMessages(updatedMessages); 
-    onMessagesUpdate(updatedMessages); // Notify parent of the placeholder
+    onMessagesUpdate(updatedMessages);
 
 
-    const historyForApi = [...messages, newUserMessage]; // Use 'messages' before adding placeholder
+    const historyForApi = [...messages, newUserMessage]; 
 
     try {
       const readableStream = await streamChatAssistant({
@@ -410,7 +456,7 @@ export function ChatAssistant({
 
         if (chatChunk.error) {
           console.error("Stream error from server:", chatChunk.error);
-          throw new Error(chatChunk.error); // Propagate error to catch block
+          throw new Error(chatChunk.error); 
         }
 
         if (chatChunk.text) {
@@ -421,13 +467,10 @@ export function ChatAssistant({
                 ? { ...msg, parts: [{type: 'text', text: accumulatedText }] }
                 : msg
             );
-            // Don't call onMessagesUpdate here for every chunk to avoid too many Firestore writes.
-            // The final message update will happen in the finally block or after the loop.
             return newMsgs;
           });
         }
       }
-      // After stream is finished, update parent with the complete message
       const finalAssistantMessage = { role: 'model' as 'model', parts: [{type: 'text' as 'text', text: accumulatedText }], id: assistantMessageId, createdAt: Date.now() };
       onMessagesUpdate([...historyForApi, finalAssistantMessage]);
 
@@ -440,7 +483,6 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      // Update placeholder with error message
       const errorAssistantMessage = { role: 'model' as 'model', parts: [{ type: 'text' as 'text', text: errorMessage }], id: assistantMessageId, createdAt: Date.now() };
        setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorAssistantMessage : msg));
       onMessagesUpdate([...historyForApi, errorAssistantMessage]);
@@ -452,10 +494,18 @@ export function ChatAssistant({
   };
 
   const handleFeatureActionClick = (promptPrefix: string) => {
-    setInput(prevInput => promptPrefix + (prevInput.startsWith(promptPrefix) ? prevInput.substring(promptPrefix.length) : prevInput));
-    setIsFeaturesPopoverOpen(false);
+    setInput(prevInput => {
+      const currentBase = prevInput.startsWith("Génère une image de ") || prevInput.startsWith("Dessine-moi ") || prevInput.startsWith("Crée une image de ") || prevInput.startsWith("Photo de ")
+        ? prevInput.substring(prevInput.indexOf(" ") + 1) // Keep text after "Génère une image de " etc.
+        : prevInput;
+      return promptPrefix + currentBase;
+    });
+    setIsFeaturesPopoverOpen(false); // Assuming you have a state for this popover
     inputRef.current?.focus();
   };
+
+
+  const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false); // Added this state
 
   const handleCopyCode = (codeToCopy: string, partId: string) => {
     navigator.clipboard.writeText(codeToCopy).then(() => {
@@ -473,7 +523,7 @@ export function ChatAssistant({
   const handleDownloadImage = (imageDataUri: string) => {
     const link = document.createElement('a');
     link.href = imageDataUri;
-    link.download = `sakai-image-${Date.now()}.png`; // Suggest a filename
+    link.download = `sakai-image-${Date.now()}.png`; 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -572,7 +622,7 @@ export function ChatAssistant({
               onClick={() => handlePreviewImage(part.imageDataUri as string)}
               data-ai-hint="user uploaded media"
             />
-             {message.role === 'model' && ( // Only show download for AI generated images
+             {message.role === 'model' && ( 
                 <Button
                     variant="outline"
                     size="icon"
@@ -585,12 +635,11 @@ export function ChatAssistant({
             )}
           </div>
         );
-      } else { // For non-image files like PDF, TXT, MD
+      } else { 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground">
             <FileText className="h-6 w-6 text-primary shrink-0" />
             <div className="truncate">
-              {/* Using part.file.name if available (for user uploads), or a generic name */}
               <p className="font-medium truncate">{part.file?.name || 'Document'}</p> 
               <p className="text-xs">{part.mimeType || 'Fichier'}</p>
             </div>
@@ -666,6 +715,80 @@ export function ChatAssistant({
         </CardContent>
 
         <CardFooter className="p-3 border-t bg-card shrink-0 flex flex-col gap-2.5">
+          {isImageSettingsPopoverOpen && (
+            <Popover open={isImageSettingsPopoverOpen} onOpenChange={setIsImageSettingsPopoverOpen}>
+                <PopoverTrigger asChild>
+                    <div className="w-full h-0"></div>
+                </PopoverTrigger>
+                <PopoverContent 
+                    className="w-auto p-4 bg-card border shadow-xl rounded-lg mb-2" 
+                    side="top" 
+                    align="start"
+                    style={{ 
+                        position: 'absolute', 
+                        bottom: '100%', /* Position above the trigger (input area) */
+                        left: '0',
+                        marginBottom: '8px' /* Small gap between popover and input */
+                    }}
+                    onOpenAutoFocus={(e) => e.preventDefault()} // Prevent focus stealing
+                >
+                    <div className="grid gap-4">
+                        <div>
+                            <Label htmlFor="image-style" className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1.5">
+                                <Palette className="h-3.5 w-3.5" /> Style Artistique
+                            </Label>
+                            <Select value={imageStyle} onValueChange={setImageStyle}>
+                                <SelectTrigger id="image-style" className="h-9 text-xs">
+                                    <SelectValue placeholder="Style" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {imageStyles.map(style => (
+                                        <SelectItem key={style.value} value={style.value} className="text-xs">
+                                            {style.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div>
+                            <Label className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1.5">
+                                <Ratio className="h-3.5 w-3.5" /> Ratio d'Aspect
+                            </Label>
+                            <RadioGroup
+                                value={imageAspectRatio}
+                                onValueChange={setImageAspectRatio}
+                                className="grid grid-cols-3 gap-2"
+                            >
+                                {imageAspectRatios.map(ratio => (
+                                    <TooltipProvider key={ratio.value} delayDuration={100}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Label
+                                                    htmlFor={`ratio-${ratio.value.replace(":", "-")}`}
+                                                    className={cn(
+                                                        "flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-xs font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                                                        imageAspectRatio === ratio.value && "border-primary ring-1 ring-primary"
+                                                    )}
+                                                >
+                                                    <RadioGroupItem value={ratio.value} id={`ratio-${ratio.value.replace(":", "-")}`} className="sr-only" />
+                                                    <span>{ratio.label.split(" ")[0]}</span>
+                                                    <span className="text-muted-foreground/80">{ratio.label.split(" ")[1]}</span>
+                                                </Label>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="bottom">
+                                                <p>{ratio.label}</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </RadioGroup>
+                        </div>
+                    </div>
+                </PopoverContent>
+            </Popover>
+           )}
+
+
           {uploadedFiles.length > 0 && (
             <div className="w-full mb-1.5 space-y-1.5">
               <div className="flex justify-between items-center">
@@ -697,26 +820,17 @@ export function ChatAssistant({
           )}
           
            <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2.5">
-            <input
-              type="file"
-              accept="image/*,application/pdf,text/plain,.md,text/markdown"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              className="hidden"
-              id="file-upload-button"
-              multiple
-            />
-             <TooltipProvider delayDuration={100}>
-              <Popover open={isFeaturesPopoverOpen} onOpenChange={setIsFeaturesPopoverOpen}>
-                <PopoverTrigger asChild>
-                   <Button variant="outline" size="icon" type="button" aria-label="Fonctionnalités de Sakai" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg">
-                      <Sparkles className="h-5 w-5" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-2 bg-card border shadow-xl rounded-lg mb-2">
-                  <div className="flex gap-1">
-                    {featureActions.map((action) => (
-                      <Tooltip key={action.id}>
+            <Popover open={isFeaturesPopoverOpen} onOpenChange={setIsFeaturesPopoverOpen}>
+              <PopoverTrigger asChild>
+                 <Button variant="outline" size="icon" type="button" aria-label="Fonctionnalités de Sakai" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg">
+                    <Sparkles className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2 bg-card border shadow-xl rounded-lg mb-2" side="top" align="start">
+                <div className="flex gap-1">
+                  {featureActions.map((action) => (
+                    <TooltipProvider key={action.id} delayDuration={100}>
+                      <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             variant="ghost"
@@ -732,11 +846,11 @@ export function ChatAssistant({
                           <p>{action.label}</p>
                         </TooltipContent>
                       </Tooltip>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </TooltipProvider>
+                    </TooltipProvider>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
 
             <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg">
                 <Paperclip className="h-5 w-5" />
@@ -784,3 +898,5 @@ export function ChatAssistant({
     </div>
   );
 }
+
+    
