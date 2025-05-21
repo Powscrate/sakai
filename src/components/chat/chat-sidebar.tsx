@@ -1,3 +1,4 @@
+
 // src/components/chat/chat-sidebar.tsx
 "use client";
 
@@ -7,13 +8,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   Brain, SlidersHorizontal, Info, Trash2, LogOut, Menu, Plus,
-  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Sparkles, FileText, Image as ImageIcon, Laugh, Lightbulb, Languages, MessageSquarePlus
+  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Sparkles, FileText, Image as ImageIcon, Laugh, Lightbulb, Languages, MessageSquarePlus, Brush, Loader2 // Added Loader2
 } from 'lucide-react';
 import { SakaiLogo } from '@/components/icons/logo';
-import type { ChatSession } from '@/app/page'; // Assuming ChatSession type is exported from page.tsx
+import type { ChatSession } from '@/app/page'; 
 import { cn } from '@/lib/utils';
 import { ThemeToggleButton } from './theme-toggle-button';
-import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu"; // Added missing import
+import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 interface ChatSidebarProps {
   chatSessions: ChatSession[];
@@ -28,7 +29,8 @@ interface ChatSidebarProps {
   onOpenDevSettingsDialog: () => void;
   onOpenFeaturesDialog: () => void;
   onOpenAboutDialog: () => void;
-  onOpenContactDialog: () => void; // Corrected: removed underscore
+  onOpenContactDialog: () => void;
+  isLoading: boolean; // Added isLoading prop
 }
 
 export function ChatSidebar({
@@ -45,6 +47,7 @@ export function ChatSidebar({
   onOpenFeaturesDialog,
   onOpenAboutDialog,
   onOpenContactDialog,
+  isLoading, // Added isLoading prop
 }: ChatSidebarProps) {
 
   const sidebarContent = (
@@ -66,10 +69,16 @@ export function ChatSidebar({
 
       <ScrollArea className="flex-1 px-3 mb-2">
         <div className="space-y-1">
-          {chatSessions.length === 0 && (
+          {isLoading && (
+            <div className="flex justify-center items-center p-4">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <p className="ml-2 text-sm text-muted-foreground">Chargement...</p>
+            </div>
+          )}
+          {!isLoading && chatSessions.length === 0 && (
             <p className="text-xs text-muted-foreground p-2 text-center">Aucune session de chat.</p>
           )}
-          {chatSessions.map((session) => (
+          {!isLoading && chatSessions.map((session) => (
             <div key={session.id} className="group relative">
               <Button
                 variant={activeChatId === session.id ? "secondary" : "ghost"}

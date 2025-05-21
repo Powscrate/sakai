@@ -1,14 +1,14 @@
+
 // src/app/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
 import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
-import useLocalStorage from '@/hooks/use-local-storage';
-import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
-import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare, Mail, Plane, Lightbulb, Languages, ImageIcon } from 'lucide-react';
+import type { ChatMessage, ChatMessagePart } from '@/ai/flows/chat-assistant-flow'; // ChatMessagePart import added
+import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare, Mail, Plane, Lightbulb, Languages, ImageIcon, Brush } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
 import {
@@ -34,24 +34,24 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from '@/hooks/use-toast';
-import { auth } from '@/lib/firebase'; // Import Firebase auth instance
+import { auth, db } from '@/lib/firebase'; 
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, setDoc, deleteDoc, serverTimestamp, Timestamp, where, getDocs, writeBatch } from 'firebase/firestore';
+import useLocalStorage from '@/hooks/use-local-storage';
 
 
 export interface ChatSession {
   id: string;
   title: string;
-  messages: ChatMessage[];
-  createdAt: number;
+  createdAt: Timestamp | number; // Can be Firestore Timestamp or number for optimistic updates
+  userId: string;
+  // messages are now in a subcollection
 }
 
-// Keys for localStorage will now be dynamic based on user ID
-const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v2_${userId}` : 'sakaiChatSessions_v2_anonymous';
-const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v2_${userId}` : 'sakaiActiveChatId_v2_anonymous';
+// Keys for localStorage for non-chat related data
 const getUserMemoryKey = (userId: string | undefined) => userId ? `sakaiUserMemory_${userId}` : 'sakaiUserMemory_anonymous';
 const getDevOverrideSystemPromptKey = (userId: string | undefined) => userId ? `sakaiDevOverrideSystemPrompt_${userId}` : 'sakaiDevOverrideSystemPrompt_anonymous';
 const getDevModelTemperatureKey = (userId: string | undefined) => userId ? `sakaiDevModelTemperature_${userId}` : 'sakaiDevModelTemperature_anonymous';
-
 
 const DEV_ACCESS_CODE = "1234566";
 
@@ -63,9 +63,13 @@ export default function ChatPage() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Dynamic keys based on currentUser.uid
-  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
-  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatMessages, setActiveChatMessages] = useState<ChatMessage[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
+  // User-specific settings from localStorage
   const [userMemory, setUserMemory] = useLocalStorage<string>(getUserMemoryKey(currentUser?.uid), '');
   const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>(getDevOverrideSystemPromptKey(currentUser?.uid), '');
   const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
@@ -86,12 +90,12 @@ export default function ChatPage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
-      if (!user) {
+      if (!user && pageIsMounted) { // Ensure pageIsMounted to avoid premature redirect
         router.push('/auth/login');
       }
     });
     return () => unsubscribe();
-  }, [router]);
+  }, [router, pageIsMounted]); // Added pageIsMounted
   
   useEffect(() => {
     if (pageIsMounted && currentUser) {
@@ -100,87 +104,183 @@ export default function ChatPage() {
     }
   }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted, currentUser]);
 
-  const handleNewChat = useCallback(() => {
-    if (!currentUser) return; 
-    const newChatId = `chat-${Date.now()}`;
-    const newChatSession: ChatSession = {
-      id: newChatId,
-      title: "Nouveau Chat",
-      messages: [],
-      createdAt: Date.now(),
-    };
-    setChatSessions(prevSessions => [newChatSession, ...prevSessions]);
-    setActiveChatId(newChatId);
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
-
+  // Fetch chat sessions from Firestore
   useEffect(() => {
-    if (!pageIsMounted || authLoading || !currentUser) return;
+    if (!currentUser || !pageIsMounted) {
+      setSessionsLoading(false);
+      return;
+    }
+    setSessionsLoading(true);
+    const sessionsCol = collection(db, `userChats/${currentUser.uid}/sessions`);
+    const q = query(sessionsCol, orderBy("createdAt", "desc"));
 
-    if (chatSessions.length === 0) {
-      handleNewChat();
-    } else if (!activeChatId || !chatSessions.find(cs => cs.id === activeChatId)) {
-        const firstValidSession = chatSessions.length > 0 ? chatSessions[0].id : null;
-        if (firstValidSession) {
-          setActiveChatId(firstValidSession);
-        } else {
-          handleNewChat();
+    const unsubscribeSessions = onSnapshot(q, (snapshot) => {
+      const fetchedSessions: ChatSession[] = [];
+      snapshot.forEach((doc) => {
+        fetchedSessions.push({ id: doc.id, ...doc.data() } as ChatSession);
+      });
+      setChatSessions(fetchedSessions);
+      if (fetchedSessions.length > 0 && !activeChatId) {
+        setActiveChatId(fetchedSessions[0].id);
+      } else if (fetchedSessions.length === 0) {
+        handleNewChat(); // Create a new chat if none exist for the user
+      }
+      setSessionsLoading(false);
+    }, (error) => {
+      console.error("Error fetching chat sessions:", error);
+      toast({ title: "Erreur", description: "Impossible de charger les sessions de chat.", variant: "destructive" });
+      setSessionsLoading(false);
+    });
+
+    return () => unsubscribeSessions();
+  }, [currentUser, pageIsMounted, activeChatId]); // Removed handleNewChat from deps
+
+  // Fetch messages for the active chat
+  useEffect(() => {
+    if (!currentUser || !activeChatId || !pageIsMounted) {
+      setActiveChatMessages([]); // Clear messages if no active chat or user
+      return;
+    }
+    setMessagesLoading(true);
+    const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`);
+    const q = query(messagesCol, orderBy("createdAt", "asc"));
+
+    const unsubscribeMessages = onSnapshot(q, (snapshot) => {
+      const fetchedMessages: ChatMessage[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        fetchedMessages.push({ 
+          id: doc.id, 
+          role: data.role,
+          parts: data.parts,
+          createdAt: data.createdAt // Assuming createdAt is stored directly
+        } as ChatMessage);
+      });
+      setActiveChatMessages(fetchedMessages);
+      setMessagesLoading(false);
+    }, (error) => {
+      console.error("Error fetching messages:", error);
+      toast({ title: "Erreur", description: "Impossible de charger les messages.", variant: "destructive" });
+      setMessagesLoading(false);
+    });
+    return () => unsubscribeMessages();
+  }, [currentUser, activeChatId, pageIsMounted]);
+
+
+  const handleNewChat = useCallback(async () => {
+    if (!currentUser) return; 
+    
+    const newChatSessionData = {
+      title: "Nouveau Chat",
+      createdAt: serverTimestamp(),
+      userId: currentUser.uid,
+    };
+    try {
+      const sessionsCol = collection(db, `userChats/${currentUser.uid}/sessions`);
+      const docRef = await addDoc(sessionsCol, newChatSessionData);
+      setActiveChatId(docRef.id); // Set active to the new chat
+      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+    } catch (error) {
+      console.error("Error creating new chat:", error);
+      toast({ title: "Erreur", description: "Impossible de créer un nouveau chat.", variant: "destructive" });
+    }
+  }, [currentUser, isMobileMenuOpen, setIsMobileMenuOpen]);
+
+  const handleMessagesUpdate = async (updatedMessages: ChatMessage[]) => {
+    if (!currentUser || !activeChatId) return;
+
+    // Get the latest message (presumably the new one added by user or AI)
+    const latestMessage = updatedMessages[updatedMessages.length - 1];
+    if (!latestMessage) return;
+
+    // Check if the message already exists in Firestore to avoid duplicates
+    // This check is simplified; in a real app, you'd ensure message IDs are unique before adding.
+    const existingMessage = activeChatMessages.find(m => m.id === latestMessage.id);
+    if (existingMessage && latestMessage.id) { // only skip if ID is present and matches
+        // This message is likely already being streamed or was just added,
+        // Firestore listener will handle UI update.
+        // For title update, we can still proceed if it's a user message
+    } else if (latestMessage.id) { // If there's an ID, try to set it (might be optimistic from client)
+      const messageRef = doc(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`, latestMessage.id);
+      try {
+        await setDoc(messageRef, {
+          ...latestMessage,
+          createdAt: latestMessage.createdAt || serverTimestamp() // Use existing or new server timestamp
+        });
+      } catch (error) {
+        console.error("Error updating message (setDoc):", error);
+      }
+    } else { // No ID, so it's a new message to add
+       const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${activeChatId}/messages`);
+        try {
+            await addDoc(messagesCol, {
+              ...latestMessage,
+              createdAt: serverTimestamp() // Always use server timestamp for new messages
+            });
+        } catch (error) {
+            console.error("Error adding new message (addDoc):", error);
         }
     }
-  }, [pageIsMounted, authLoading, currentUser, router, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
 
 
-  const activeChatMessages = chatSessions.find(cs => cs.id === activeChatId)?.messages || [];
-
-  const handleMessagesUpdate = (updatedMessages: ChatMessage[]) => {
-    setChatSessions(prevSessions =>
-      prevSessions.map(session => {
-        if (session.id === activeChatId) {
-          let newTitle = session.title;
-          if ((newTitle === "Nouveau Chat" || newTitle === "Nouvelle Discussion") && updatedMessages.length > 0) {
-            const firstUserMessage = updatedMessages.find(m => m.role === 'user' && m.parts[0]?.type === 'text');
-            if (firstUserMessage && firstUserMessage.parts[0].type === 'text') {
-              newTitle = firstUserMessage.parts[0].text.substring(0, 30) + (firstUserMessage.parts[0].text.length > 30 ? '...' : '');
+    // Update chat title if it's "Nouveau Chat" and a user message is added
+    const currentSession = chatSessions.find(s => s.id === activeChatId);
+    if (currentSession && (currentSession.title === "Nouveau Chat" || currentSession.title === "Nouvelle Discussion")) {
+        const firstUserMessage = updatedMessages.find(m => m.role === 'user' && m.parts[0]?.type === 'text');
+        if (firstUserMessage && firstUserMessage.parts[0].type === 'text') {
+            const newTitle = firstUserMessage.parts[0].text.substring(0, 30) + (firstUserMessage.parts[0].text.length > 30 ? '...' : '');
+            const sessionRef = doc(db, `userChats/${currentUser.uid}/sessions/${activeChatId}`);
+            try {
+                await setDoc(sessionRef, { title: newTitle }, { merge: true });
+            } catch (error) {
+                console.error("Error updating chat title:", error);
             }
-          }
-          return { ...session, messages: updatedMessages, title: newTitle };
         }
-        return session;
-      })
-    );
+    }
   };
 
-  const handleDeleteChat = (idToDelete: string) => {
-    setChatSessions(prevSessions => {
-      const newSessions = prevSessions.filter(session => session.id !== idToDelete);
+  const handleDeleteChat = async (idToDelete: string) => {
+    if (!currentUser) return;
+    try {
+      // Delete all messages in the chat session's subcollection first
+      const messagesCol = collection(db, `userChats/${currentUser.uid}/sessions/${idToDelete}/messages`);
+      const messagesSnapshot = await getDocs(messagesCol);
+      const batch = writeBatch(db);
+      messagesSnapshot.forEach(msgDoc => {
+        batch.delete(doc(db, `userChats/${currentUser.uid}/sessions/${idToDelete}/messages`, msgDoc.id));
+      });
+      await batch.commit();
+
+      // Then delete the chat session document itself
+      const sessionRef = doc(db, `userChats/${currentUser.uid}/sessions/${idToDelete}`);
+      await deleteDoc(sessionRef);
+
+      toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
       if (activeChatId === idToDelete) {
-        if (newSessions.length > 0) {
-          setActiveChatId(newSessions[0].id);
-        } else {
-          setActiveChatId(null); 
-          if (currentUser) handleNewChat(); // Create a new chat if user is still logged in
-        }
+         setActiveChatId(null); // Active chat will be reset by session listener or new chat creation
       }
-      return newSessions;
-    });
-    toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
+    } catch (error) {
+      console.error("Error deleting chat:", error);
+      toast({ title: "Erreur", description: "Impossible de supprimer le chat.", variant: "destructive" });
+    }
   };
   
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // `onAuthStateChanged` will set currentUser to null and trigger redirect
-      // Clearing local storage for chat sessions etc. for the logged-out user
-      // Note: useLocalStorage hooks for these will re-initialize with default values
-      // when currentUser.uid becomes undefined.
+      // Clear local states tied to user
       setChatSessions([]);
       setActiveChatId(null);
-      setUserMemory('');
-      setDevOverrideSystemPrompt('');
-      setDevModelTemperature(undefined);
+      setActiveChatMessages([]);
+      // Keep userMemory etc. in localStorage as they are keyed by UID, 
+      // they will be reloaded for the next user or cleared if a new user never had them.
+      // Or explicitly clear them:
+      // setUserMemory(''); 
+      // setDevOverrideSystemPrompt('');
+      // setDevModelTemperature(undefined);
 
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté."});
-      // router.push('/auth/login'); // onAuthStateChanged handles this
+      // onAuthStateChanged will trigger redirect to /auth/login
     } catch (error) {
       console.error("Logout error:", error);
       toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
@@ -188,7 +288,7 @@ export default function ChatPage() {
   };
 
   const handleSaveMemory = (newMemory: string) => {
-    setUserMemory(newMemory);
+    setUserMemory(newMemory); // This will save to localStorage via the hook
     toast({
       title: "Mémoire sauvegardée",
       description: "Sakai utilisera ces informations pour ses prochaines réponses.",
@@ -199,8 +299,10 @@ export default function ChatPage() {
     if (devCodeInput === DEV_ACCESS_CODE) {
       setIsDevCodePromptOpen(false);
       setDevCodeInput('');
-      setTempOverrideSystemPrompt(devOverrideSystemPrompt);
-      setTempModelTemperature(devModelTemperature ?? 0.7);
+      if (pageIsMounted && currentUser) { // Ensure these are set only if ready
+        setTempOverrideSystemPrompt(devOverrideSystemPrompt);
+        setTempModelTemperature(devModelTemperature ?? 0.7);
+      }
       setIsDevSettingsOpen(true);
       toast({
         title: "Accès Développeur Accordé",
@@ -237,7 +339,7 @@ export default function ChatPage() {
     });
   };
 
-  if (!pageIsMounted || authLoading || !currentUser) { 
+  if (!pageIsMounted || authLoading) { 
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -246,6 +348,15 @@ export default function ChatPage() {
     );
   }
   
+  if (!currentUser) { // Should be handled by onAuthStateChanged redirect, but as a fallback
+     return (
+      <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">Redirection vers la page de connexion...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-muted/30 dark:bg-background">
       <ChatSidebar
@@ -265,21 +376,25 @@ export default function ChatPage() {
         onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
         onOpenAboutDialog={() => setIsAboutDialogOpen(true)}
         onOpenContactDialog={() => setIsContactDialogOpen(true)}
+        isLoading={sessionsLoading}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
-        {activeChatId ? (
+        {activeChatId && !messagesLoading ? (
           <ChatAssistant
-            key={activeChatId} 
+            key={activeChatId} // Important to re-mount component on chat change
             initialMessages={activeChatMessages}
             onMessagesUpdate={handleMessagesUpdate}
             userMemory={userMemory}
             devOverrideSystemPrompt={devOverrideSystemPrompt}
             devModelTemperature={devModelTemperature}
-            activeChatId={activeChatId}
+            activeChatId={activeChatId} // Pass activeChatId
           />
         ) : (
-           <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            {chatSessions.length > 0 ? <p>Sélectionnez un chat pour continuer.</p> : <p>Cliquez sur "Nouveau Chat" pour commencer.</p>}
+           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4">
+             <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+            {sessionsLoading || messagesLoading ? <p>Chargement des discussions...</p> : 
+             chatSessions.length > 0 ? <p>Sélectionnez un chat pour continuer ou créez-en un nouveau.</p> : 
+             <p>Créez un "Nouveau Chat" pour commencer.</p>}
           </div>
         )}
       </main>
@@ -321,9 +436,9 @@ export default function ChatPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
-              <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique codé par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
+              <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique créé par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle pour vous offrir une expérience interactive et enrichissante.</p>
-              <p>Version: 1.8.0 (Authentification & Personnalisation)</p>
+              <p>Version: 2.0.0 (Authentification Firebase & Firestore)</p>
               <p className="mt-4 text-xs text-muted-foreground">
                 © Tous droits réservés.<br />
                 Créateur & Développeur : MAMPIONONTIAKO Tantely Etienne Théodore
