@@ -4,15 +4,16 @@
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   Brain, SlidersHorizontal, Info, Trash2, LogOut, Menu, Plus,
-  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Brush, Sparkles, FileText, Image as ImageIcon, Laugh, Lightbulb, Languages, MessageSquarePlus
+  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Sparkles, FileText, Image as ImageIcon, Laugh, Lightbulb, Languages, MessageSquarePlus
 } from 'lucide-react';
 import { SakaiLogo } from '@/components/icons/logo';
 import type { ChatSession } from '@/app/page'; // Assuming ChatSession type is exported from page.tsx
 import { cn } from '@/lib/utils';
-import { ThemeToggleButton } from './theme-toggle-button'; // Corrected import
+import { ThemeToggleButton } from './theme-toggle-button';
+import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu"; // Added missing import
 
 interface ChatSidebarProps {
   chatSessions: ChatSession[];
@@ -27,7 +28,7 @@ interface ChatSidebarProps {
   onOpenDevSettingsDialog: () => void;
   onOpenFeaturesDialog: () => void;
   onOpenAboutDialog: () => void;
-  onOpenContactDialog: ()_ => void;
+  onOpenContactDialog: () => void; // Corrected: removed underscore
 }
 
 export function ChatSidebar({
@@ -45,9 +46,6 @@ export function ChatSidebar({
   onOpenAboutDialog,
   onOpenContactDialog,
 }: ChatSidebarProps) {
-
-  // Quick actions are now handled by the popover in ChatAssistant.tsx Footer
-  // This sidebar will focus on chat history and main app navigation/settings.
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-card text-card-foreground border-r">
@@ -98,7 +96,6 @@ export function ChatSidebar({
       </ScrollArea>
 
       <div className="mt-auto p-3 border-t space-y-1.5">
-        {/* Links to other features removed, now handled by ChatAssistant popover or main menu */}
         <DropdownMenuSeparator className="my-1" /> 
         <p className="text-xs text-muted-foreground px-2 pt-1">Options</p>
         <Button variant="ghost" className="w-full justify-start text-sm" onClick={onOpenMemoryDialog}>
@@ -149,8 +146,3 @@ export function ChatSidebar({
     </>
   );
 }
-
-// Dummy DropdownMenuSeparator for type consistency if not imported, though it should be from ShadCN
-const DropdownMenuSeparator = ({ className }: { className?: string }) => (
-  <div className={cn("h-px bg-muted", className)} />
-);
