@@ -99,28 +99,21 @@ body {
 
 /* Styles for code blocks - adjusted for react-syntax-highlighter */
 pre {
-  /* background-color: hsl(var(--muted)); */ /* Handled by SyntaxHighlighter style prop */
-  /* color: hsl(var(--muted-foreground)); */ /* Handled by SyntaxHighlighter style prop */
-  /* padding: 1rem; */ /* Handled by SyntaxHighlighter style prop */
-  /* border-radius: var(--radius); */ /* SyntaxHighlighter's pre usually has its own or none */
-  overflow-x: auto; /* Good to keep for long lines not wrapped by highlighter */
-  font-family: Menlo, Monaco, Consolas, "Courier New", monospace; /* Sensible default */
+  overflow-x: auto; 
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, var(--font-geist-mono); /* Added Geist Mono as fallback */
   font-size: 0.875rem; /* 14px */
-  line-height: 1.5; /* Adjusted for better readability; SyntaxHighlighter may also control this */
+  line-height: 1.5; 
   margin-top: 0.5em;
   margin-bottom: 0.5em;
-  white-space: pre; /* Ensures whitespace is preserved by default, but SyntaxHighlighter might use pre-wrap */
+  white-space: pre; 
 }
 
-/* SyntaxHighlighter renders its own <pre> and <code>, so these might not be needed or can be minimal */
 pre code {
-  font-family: inherit; /* Good to inherit from pre */
-  background-color: transparent !important; /* Ensure no double background */
-  color: inherit !important; /* Ensure text color is from highlighter */
-  padding: 0 !important; /* SyntaxHighlighter usually handles padding */
+  font-family: inherit; 
+  background-color: transparent !important; 
+  color: inherit !important; 
+  padding: 0 !important; 
   border-radius: 0;
-  /* white-space: pre-wrap; */ /* Controlled by SyntaxHighlighter's wrapLines or lineProps */
-  /* word-break: break-all; */ /* Controlled by SyntaxHighlighter's lineProps */
 }
 
 /* Blinking cursor style */
@@ -148,4 +141,16 @@ pre::-webkit-scrollbar-thumb {
 }
 pre::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.7);
+}
+
+/* Animation for popover */
+@keyframes slideUpAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

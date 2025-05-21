@@ -8,40 +8,55 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      let item;
       try {
-        const item = window.localStorage.getItem(key);
-        // Check if item exists and is not the literal string "undefined"
-        if (item && item !== "undefined") {
-          setStoredValue(JSON.parse(item));
-        } else {
-          // Handles null, or the problematic "undefined" string
-          setStoredValue(initialValue);
-          window.localStorage.setItem(key, JSON.stringify(initialValue));
-        }
+        item = window.localStorage.getItem(key);
       } catch (error) {
-        console.error(`Error reading localStorage key "${key}":`, error);
-        // If parsing fails for any other reason, also revert to initialValue and reset localStorage
+        console.error(`Error reading localStorage key "${key}" (could be disabled or unavailable):`, error);
+        item = null; // Treat as if item doesn't exist
+      }
+      
+      if (item && item !== "undefined" && item !== "null") {
+        try {
+          setStoredValue(JSON.parse(item));
+        } catch (error) {
+          console.error(`Error parsing localStorage key "${key}":`, error, "Raw item:", item);
+          setStoredValue(initialValue); // Fallback to initialValue if parsing fails
+          try {
+            window.localStorage.setItem(key, JSON.stringify(initialValue));
+          } catch (e) { /* ignore write error */ }
+        }
+      } else {
         setStoredValue(initialValue);
-        window.localStorage.setItem(key, JSON.stringify(initialValue));
+        if (item === "undefined" || item === "null") { // Overwrite problematic literal strings
+          try {
+            window.localStorage.setItem(key, JSON.stringify(initialValue));
+          } catch (e) { /* ignore write error */ }
+        }
       }
       setIsInitialized(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]); // Only run once on mount to initialize from localStorage
+  }, [key]); // Only re-run if the key changes. InitialValue should be stable.
 
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
-      if (typeof window === 'undefined' || !isInitialized) {
-        // If on server or not yet initialized, just update state
-        // This avoids trying to write to localStorage too early or on server
+      if (typeof window === 'undefined') {
         setStoredValue(prev => (value instanceof Function ? value(prev) : value));
         return;
       }
+      
       try {
-        // Allow value to be a function so we have the same API as useState
         const valueToStore = value instanceof Function ? value(storedValue) : value;
         setStoredValue(valueToStore);
-        // Avoid storing the string "undefined"
+        
+        if (!isInitialized) { 
+          // If not yet initialized from localStorage, queue the write until after initialization
+          // to avoid race conditions or overwriting initial load.
+          // This case is less likely with current setup but good for robustness.
+          return;
+        }
+
         if (valueToStore === undefined) {
           window.localStorage.removeItem(key);
         } else {
@@ -51,12 +66,10 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
         console.error(`Error setting localStorage key "${key}":`, error);
       }
     },
-    [key, storedValue, isInitialized]
+    [key, storedValue, isInitialized] // Include isInitialized
   );
   
-  const currentValue = typeof window === 'undefined' || !isInitialized ? initialValue : storedValue;
-
-  return [currentValue, setValue];
+  return [isInitialized ? storedValue : initialValue, setValue];
 }
 
 export default useLocalStorage;
