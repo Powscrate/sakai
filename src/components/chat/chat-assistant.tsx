@@ -8,20 +8,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Send, Loader2, User, Bot, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
+  Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
   Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
-  Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Image as ImageIconLucide, Palette, Ratio
+  Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio,
+  Image as ImageIconLucide
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -47,7 +50,7 @@ import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatM
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { SakaiLogo } from '@/components/icons/logo';
+import { SakaiLogo } from '@/components/icons/logo'; // Import SakaiLogo
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -98,6 +101,7 @@ interface ChatAssistantProps {
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
   activeChatId: string | null;
+  currentUserName?: string | null; // Add this prop
 }
 
 export function ChatAssistant({
@@ -107,6 +111,7 @@ export function ChatAssistant({
   devOverrideSystemPrompt,
   devModelTemperature,
   activeChatId,
+  currentUserName,
 }: ChatAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -134,8 +139,15 @@ export function ChatAssistant({
 
 
   useEffect(() => {
-    setMessages(initialMessages);
-  }, [initialMessages, activeChatId]);
+    // Only update messages if the activeChatId changes or initialMessages truly differ
+    // This helps prevent resetting the chat view unnecessarily
+    if (activeChatId) {
+        setMessages(initialMessages);
+        setInput(''); // Clear input when chat changes
+        setUploadedFiles([]); // Clear uploaded files when chat changes
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId, initialMessages]); // Keep initialMessages if direct comparison is needed, otherwise consider a stable ID or length.
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -232,7 +244,7 @@ export function ChatAssistant({
 
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
-    setCurrentStreamingMessageId(null); // Ensure cursor is not shown for this special handling
+    setCurrentStreamingMessageId(null); 
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
@@ -250,17 +262,16 @@ export function ChatAssistant({
       createdAt: Date.now() + 1,
     };
     
-    // Update local messages and then call onMessagesUpdate for parent
     const updatedLocalMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    onMessagesUpdate([...messages, userPromptMessage]); // Send only user message initially to parent
+    // onMessagesUpdate is called by the main handleSendMessage after this specific handler is done
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: promptText });
       let finalAssistantMessagePart: ChatMessagePart;
 
       if (result.imageUrl) {
-        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }; // Assuming PNG for now
+        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }; 
       } else {
         const errorMessage = result.error || "La génération d'image a échoué ou l'URL est manquante.";
         toast({
@@ -274,9 +285,10 @@ export function ChatAssistant({
       const finalAssistantMessage: ChatMessage = {
         role: 'model' as 'model',
         parts: [finalAssistantMessagePart],
-        id: imageGenPlaceholderId, // Re-use ID for replacement
+        id: imageGenPlaceholderId, 
         createdAt: Date.now(),
       };
+
       setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
       onMessagesUpdate([...messages, userPromptMessage, finalAssistantMessage]);
 
@@ -311,13 +323,13 @@ export function ChatAssistant({
     const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
-    if (uploadedFiles.length === 0) { // Only detect image generation if no files are uploaded
+    if (uploadedFiles.length === 0) { 
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
-      if (typeof e !== 'string') setInput(''); // Clear input only if it was a form submission
-      clearAllUploadedFiles(); // Clear files as well if image gen is triggered by text
+      if (typeof e !== 'string') setInput(''); 
+      clearAllUploadedFiles();
       await handleImageGeneration(currentInput);
       return;
     }
@@ -330,13 +342,13 @@ export function ChatAssistant({
         else if (fileWrapper.file.name.toLowerCase().endsWith('.txt')) mimeType = 'text/plain';
         else if (fileWrapper.file.name.toLowerCase().endsWith('.pdf')) mimeType = 'application/pdf';
         else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => fileWrapper.file.name.toLowerCase().endsWith(ext))) {
-          mimeType = fileWrapper.file.type || (fileWrapper.file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'); // Basic fallback
+          mimeType = fileWrapper.file.type || (fileWrapper.file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
         } else {
-          mimeType = 'application/octet-stream'; // Default unknown
+          mimeType = 'application/octet-stream'; 
         }
       }
       newUserMessageParts.push({
-        type: 'image', // Use 'image' for Gemini to treat as media, mimeType will specify
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -360,7 +372,10 @@ export function ChatAssistant({
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     const updatedLocalMessages = [...messages, newUserMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    onMessagesUpdate([...messages, newUserMessage]); // Send only new user message to parent initially for storage
+    // Defer calling onMessagesUpdate with the AI's placeholder until we actually get a response or error.
+    // First, update parent with only the user's new message.
+    onMessagesUpdate([...messages, newUserMessage]);
+
 
     const historyForApi = [...messages, newUserMessage]; 
 
@@ -373,11 +388,15 @@ export function ChatAssistant({
       });
       const reader = readableStream.getReader();
       let accumulatedText = "";
+      let fullResponseReceived = false;
       
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          fullResponseReceived = true;
+          break;
+        }
 
         const chatChunk: ChatStreamChunk = value;
 
@@ -385,6 +404,7 @@ export function ChatAssistant({
           console.error("Stream error from server:", chatChunk.error);
           accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`; 
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
+          fullResponseReceived = true; // Mark as full response to trigger final update
           break; 
         }
 
@@ -409,7 +429,7 @@ export function ChatAssistant({
       };
       
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, finalAssistantMessage]);
+      onMessagesUpdate([...historyForApi, finalAssistantMessage]); // Now update parent with the full exchange
 
 
     } catch (error: any) {
@@ -427,7 +447,7 @@ export function ChatAssistant({
         createdAt: Date.now() 
       };
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, errorAssistantMessage]);
+      onMessagesUpdate([...historyForApi, errorAssistantMessage]); // Update parent with error message
     } finally {
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
@@ -436,7 +456,7 @@ export function ChatAssistant({
 
   const handleFeatureActionClick = (promptPrefix: string) => {
     setInput(prevInput => promptPrefix + prevInput);
-    setIsFeaturesPopoverOpen(false); // Close popover after click
+    setIsFeaturesPopoverOpen(false); 
     inputRef.current?.focus();
   };
 
@@ -456,7 +476,7 @@ export function ChatAssistant({
   const handleDownloadImage = (imageDataUri: string) => {
     const link = document.createElement('a');
     link.href = imageDataUri;
-    link.download = `sakai-image-${Date.now()}.png`; // Suggest a filename
+    link.download = `sakai-image-${Date.now()}.png`; 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -468,128 +488,6 @@ export function ChatAssistant({
     setIsImagePreviewOpen(true);
   };
   
-  const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
-    const elements: JSX.Element[] = [];
-    let remainingText = text;
-  
-    // Regex for code blocks
-    const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/gs;
-    // Regex for headings, bold, italics, and lists (simplified)
-    const lineRegex = /^(#{1,3})\s+(.+)|(\*\*|__)(.+?)\3|(\*|_)(.+?)\5|^(\s*[-*]|\s*\d+\.)\s+(.+)/;
-  
-    let keyIndex = 0;
-  
-    const processBlock = (blockText: string, isCodeBlock: boolean, lang?: string) => {
-      if (isCodeBlock) {
-        const codeBlockId = `${uniqueKeyPrefix}-code-${keyIndex++}`;
-        elements.push(
-          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2 rounded-md shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50">
-              <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-50 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                onClick={() => handleCopyCode(blockText, codeBlockId)}
-                aria-label="Copier le code"
-              >
-                {copiedStates[codeBlockId] ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-            <SyntaxHighlighter
-              language={lang || 'plaintext'}
-              style={vscDarkPlus}
-              showLineNumbers
-              wrapLines={true}
-              lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
-              className="!p-3 !text-sm !bg-transparent !font-mono"
-              codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
-            >
-              {blockText}
-            </SyntaxHighlighter>
-          </div>
-        );
-      } else {
-        // Process non-code block text line by line for other markdown
-        const lines = blockText.split('\n');
-        let currentListType: 'ul' | 'ol' | null = null;
-        let listItems: JSX.Element[] = [];
-  
-        const flushList = () => {
-          if (listItems.length > 0) {
-            if (currentListType === 'ul') {
-              elements.push(<ul key={`${uniqueKeyPrefix}-ul-${keyIndex++}`} className="list-disc list-inside my-1 pl-4 space-y-0.5">{listItems}</ul>);
-            } else if (currentListType === 'ol') {
-              elements.push(<ol key={`${uniqueKeyPrefix}-ol-${keyIndex++}`} className="list-decimal list-inside my-1 pl-4 space-y-0.5">{listItems}</ol>);
-            }
-            listItems = [];
-            currentListType = null;
-          }
-        };
-  
-        lines.forEach((line, idx) => {
-          const lineMatch = line.match(lineRegex);
-          if (lineMatch) {
-            flushList(); // End previous list if type changes or not a list item
-            if (lineMatch[1]) { // Heading
-              const level = lineMatch[1].length;
-              const content = lineMatch[2];
-              if (level === 1) elements.push(<h1 key={`${uniqueKeyPrefix}-h1-${keyIndex++}`} className="text-xl font-semibold my-2">{content}</h1>);
-              else if (level === 2) elements.push(<h2 key={`${uniqueKeyPrefix}-h2-${keyIndex++}`} className="text-lg font-semibold my-1.5">{content}</h2>);
-              else if (level === 3) elements.push(<h3 key={`${uniqueKeyPrefix}-h3-${keyIndex++}`} className="text-md font-semibold my-1">{content}</h3>);
-            } else if (lineMatch[3]) { // Bold
-              elements.push(<strong key={`${uniqueKeyPrefix}-strong-${keyIndex++}`}>{lineMatch[4]}</strong>);
-            } else if (lineMatch[5]) { // Italic
-              elements.push(<em key={`${uniqueKeyPrefix}-em-${keyIndex++}`}>{lineMatch[6]}</em>);
-            } else if (lineMatch[7]) { // List item
-              const listMarker = lineMatch[7];
-              const itemContent = lineMatch[8];
-              const newListType = listMarker.includes('.') ? 'ol' : 'ul';
-              if (currentListType !== newListType) {
-                flushList();
-                currentListType = newListType;
-              }
-              listItems.push(<li key={`${uniqueKeyPrefix}-li-${idx}-${keyIndex++}`}>{itemContent}</li>);
-            } else {
-               // This case should ideally not be hit if regex is comprehensive for special lines
-               elements.push(<span key={`${uniqueKeyPrefix}-span-${idx}-${keyIndex++}`}>{line}</span>);
-               if (idx < lines.length -1) elements.push(<br key={`${uniqueKeyPrefix}-br-${idx}-${keyIndex++}`} />);
-            }
-          } else {
-            flushList(); // End list if line is not a list item
-            elements.push(<span key={`${uniqueKeyPrefix}-span-${idx}-${keyIndex++}`}>{line}</span>);
-            // Add <br /> only if it's not the last line and the line is not empty
-            if (idx < lines.length - 1 && line.trim() !== "") {
-                 // elements.push(<br key={`${uniqueKeyPrefix}-br-${idx}-${keyIndex++}`} />);
-            } else if (line.trim() === "" && idx < lines.length - 1 && lines[idx+1].trim() !== "") {
-                 elements.push(<div key={`${uniqueKeyPrefix}-pbr-${idx}-${keyIndex++}`} className="h-3"></div>); // Paragraph break
-            }
-          }
-        });
-        flushList(); // Flush any remaining list items
-      }
-    };
-    
-    // Simpler block splitting: just code blocks for now, rest is paragraph
-    let lastIndex = 0;
-    let match;
-    while ((match = codeBlockRegex.exec(remainingText)) !== null) {
-      if (match.index > lastIndex) {
-        parseAndStyleNonCodeText(elements, remainingText.substring(lastIndex, match.index), uniqueKeyPrefix, keyIndex++);
-      }
-      const lang = match[1]?.toLowerCase() || 'plaintext';
-      const code = match[2].trim();
-      processBlock(code, true, lang);
-      lastIndex = match.index + match[0].length;
-    }
-  
-    if (lastIndex < remainingText.length) {
-      parseAndStyleNonCodeText(elements, remainingText.substring(lastIndex), uniqueKeyPrefix, keyIndex++);
-    }
-  
-    return elements;
-  };
-
   const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, uniqueKeyPrefix: string, blockKeyIndex: number) => {
     const lines = textBlock.split('\n');
     let currentListType: 'ul' | 'ol' | null = null;
@@ -611,18 +509,17 @@ export function ChatAssistant({
 
     lines.forEach((line, lineIdx) => {
         const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
-        const boldMatch = line.match(/(\*\*|__)(.*?)\1/g); // May match multiple
-        const italicMatch = line.match(/(\*|_)(.*?)\1/g); // May match multiple
         const listItemMatch = line.match(/^\s*([-*]|\d+\.)\s+(.*)/);
 
         if (headingMatch) {
             flushList();
             const level = headingMatch[1].length;
             const content = headingMatch[2];
+            const processedContent = processInlineFormatting(content, `${uniqueKeyPrefix}-h${level}-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
             const headingKey = `${uniqueKeyPrefix}-h${level}-${blockKeyIndex}-${keyIndex++}`;
-            if (level === 1) elements.push(<h1 key={headingKey} className="text-xl font-semibold my-3 pb-1 border-b">{content}</h1>);
-            else if (level === 2) elements.push(<h2 key={headingKey} className="text-lg font-semibold my-2 pb-0.5 border-b">{content}</h2>);
-            else elements.push(<h3 key={headingKey} className="text-md font-semibold my-1.5">{content}</h3>);
+            if (level === 1) elements.push(<h1 key={headingKey} className="text-xl 2xl:text-2xl font-semibold my-3 pb-1 border-b">{processedContent}</h1>);
+            else if (level === 2) elements.push(<h2 key={headingKey} className="text-lg 2xl:text-xl font-semibold my-2 pb-0.5 border-b">{processedContent}</h2>);
+            else elements.push(<h3 key={headingKey} className="text-md 2xl:text-lg font-semibold my-1.5">{processedContent}</h3>);
         } else if (listItemMatch) {
             const listMarker = listItemMatch[1];
             const itemContent = listItemMatch[2];
@@ -631,54 +528,109 @@ export function ChatAssistant({
             if (currentListType !== newListType && listItems.length > 0) flushList();
             currentListType = newListType;
             
-            // Process bold/italic within list item
             const processedItemContent = processInlineFormatting(itemContent, `${uniqueKeyPrefix}-li-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
             listItems.push(<li key={`${uniqueKeyPrefix}-li-${blockKeyIndex}-${lineIdx}-${keyIndex++}`}>{processedItemContent}</li>);
         } else {
             flushList();
             if (line.trim() === '') {
-                elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-3"></div>); // Paragraph break for empty line
+                // Add a visual paragraph break only if followed by non-empty line or it's not the last line
+                if (lineIdx < lines.length -1 && lines[lineIdx+1]?.trim() !== '') {
+                   elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>); 
+                } else if (lineIdx === lines.length - 1 && elements.length > 0 && !elements[elements.length-1].key?.toString().includes('-pbr-')) {
+                   // If it's the very last line and it's empty, only add break if previous wasn't already a break
+                }
             } else {
-                 // Process bold/italic for normal paragraph lines
                 const processedLine = processInlineFormatting(line, `${uniqueKeyPrefix}-p-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
-                elements.push(<p key={`${uniqueKeyPrefix}-p-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="my-1">{processedLine}</p>);
+                elements.push(<p key={`${uniqueKeyPrefix}-p-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="my-1 2xl:my-1.5">{processedLine}</p>);
             }
         }
     });
-    flushList(); // Flush any remaining list items at the end of the block
+    flushList(); 
 };
 
 const processInlineFormatting = (text: string, baseKey: string) => {
-    // This is a very simplified parser. For robust markdown, a library is needed.
-    // It handles simple cases of **bold** and *italic*.
-    // It doesn't handle nested or complex combinations well.
-    const parts = [];
+    const parts: (JSX.Element | string)[] = [];
     let remainingText = text;
     let keyIdx = 0;
 
-    // Regex to find first occurrence of **bold** or *italic*
-    const inlineRegex = /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3/;
+    const inlineRegex = /(\*\*\*|___)(.+?)\1|(\*\*|__)(.+?)\3|(\*|_)(.+?)\5|(`)(.+?)\7/g;
+    let lastIndex = 0;
     let match;
 
     while ((match = inlineRegex.exec(remainingText)) !== null) {
-        // Add text before the match
-        if (match.index > 0) {
-            parts.push(<span key={`${baseKey}-txt-${keyIdx++}`}>{remainingText.substring(0, match.index)}</span>);
+        if (match.index > lastIndex) {
+            parts.push(remainingText.substring(lastIndex, match.index));
         }
-        // Add the bold/italic part
-        if (match[2]) { // Bold
-            parts.push(<strong key={`${baseKey}-strong-${keyIdx++}`}>{match[2]}</strong>);
-        } else if (match[4]) { // Italic
-            parts.push(<em key={`${baseKey}-em-${keyIdx++}`}>{match[4]}</em>);
+        if (match[2]) { // Bold Italic
+            parts.push(<strong key={`${baseKey}-bi-${keyIdx++}`}><em>{match[2]}</em></strong>);
+        } else if (match[4]) { // Bold
+            parts.push(<strong key={`${baseKey}-strong-${keyIdx++}`}>{match[4]}</strong>);
+        } else if (match[6]) { // Italic
+            parts.push(<em key={`${baseKey}-em-${keyIdx++}`}>{match[6]}</em>);
+        } else if (match[8]) { // Inline Code
+            parts.push(<code key={`${baseKey}-code-${keyIdx++}`} className="px-1 py-0.5 bg-muted text-muted-foreground rounded-sm text-xs font-mono">{match[8]}</code>);
         }
-        remainingText = remainingText.substring(match.index + match[0].length);
+        lastIndex = match.index + match[0].length;
     }
 
-    // Add any remaining text
-    if (remainingText) {
-        parts.push(<span key={`${baseKey}-txt-${keyIdx++}`}>{remainingText}</span>);
+    if (lastIndex < remainingText.length) {
+        parts.push(remainingText.substring(lastIndex));
     }
-    return <>{parts}</>;
+    
+    // Filter out empty strings that might result from splitting
+    return <>{parts.filter(part => typeof part === 'string' ? part.length > 0 : true)}</>;
+};
+
+const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
+  const elements: JSX.Element[] = [];
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/gs;
+  let lastIndex = 0;
+  let match;
+  let blockKeyIndex = 0;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parseAndStyleNonCodeText(elements, text.substring(lastIndex, match.index), uniqueKeyPrefix, blockKeyIndex++);
+    }
+    const lang = match[1]?.toLowerCase() || 'plaintext';
+    const code = match[2].trimEnd(); // Use trimEnd to preserve intentional leading newlines in code
+    const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex++}`;
+    elements.push(
+      <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2.5 rounded-md shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/50">
+          <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+            onClick={() => handleCopyCode(code, codeBlockId)}
+            aria-label="Copier le code"
+          >
+            {copiedStates[codeBlockId] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+          </Button>
+        </div>
+        <SyntaxHighlighter
+          language={lang || 'plaintext'}
+          style={vscDarkPlus}
+          showLineNumbers
+          wrapLines={true}
+          lineNumberStyle={{minWidth: '2.25em', paddingRight: '0.5em', opacity: 0.6}}
+          lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
+          className="!py-3 !px-0 !text-sm !bg-transparent !font-mono"
+          codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parseAndStyleNonCodeText(elements, text.substring(lastIndex), uniqueKeyPrefix, blockKeyIndex++);
+  }
+
+  return elements;
 };
 
 
@@ -688,7 +640,7 @@ const processInlineFormatting = (text: string, baseKey: string) => {
     if (part.type === 'text') {
       const styledTextElements = parseAndStyleText(part.text, uniquePartKey);
       return (
-        <div key={uniquePartKey} className="text-sm whitespace-pre-wrap leading-relaxed">
+        <div key={uniquePartKey} className="text-sm 2xl:text-base whitespace-pre-wrap leading-relaxed">
             {styledTextElements}
             {isLastMessageOfList && message.role === 'model' && isLoading && message.id === currentStreamingMessageId && (
                 <span className="blinking-cursor-span">▋</span>
@@ -703,12 +655,12 @@ const processInlineFormatting = (text: string, baseKey: string) => {
 
       if (isImageFile) {
         return (
-          <div key={uniquePartKey} className={cn("relative group my-2", isUserMessage ? "max-w-[250px]" : "max-w-[300px]")}>
+          <div key={uniquePartKey} className={cn("relative group my-2", isUserMessage ? "max-w-[250px] md:max-w-[300px]" : "max-w-[300px] md:max-w-[350px]")}>
             <NextImage
               src={part.imageDataUri}
               alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
-              width={isUserMessage ? 250 : 300}
-              height={isUserMessage ? 250 : 300}
+              width={isUserMessage ? 300 : 350}
+              height={isUserMessage ? 300 : 350}
               className="rounded-lg object-contain max-w-full h-auto border border-border/50 cursor-pointer hover:opacity-80 transition-opacity"
               onClick={() => handlePreviewImage(part.imageDataUri as string)}
               data-ai-hint={isUserMessage ? "user uploaded media" : "generated media"}
@@ -728,7 +680,7 @@ const processInlineFormatting = (text: string, baseKey: string) => {
         );
       } else { 
         return (
-          <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px]">
+          <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
             <FileText className="h-6 w-6 text-primary shrink-0" />
             <div className="truncate">
               <p className="font-medium truncate">{part.file?.name || 'Document'}</p> 
@@ -743,11 +695,16 @@ const processInlineFormatting = (text: string, baseKey: string) => {
 
 
   return (
-    <div className="flex flex-col h-full bg-card text-card-foreground shadow-xl rounded-lg overflow-hidden">
+    <Card className="w-full h-full flex flex-col shadow-2xl rounded-lg overflow-hidden bg-card text-card-foreground"> {/* Removed max-w-2xl */}
       <CardHeader className="shrink-0 border-b p-4 flex flex-row items-center justify-between bg-card">
         <div className="flex items-center gap-3">
-          <SakaiLogo className="h-7 w-7 text-primary" />
-          <CardTitle className="text-lg font-semibold text-foreground">Sakai</CardTitle>
+          <SakaiLogo className="h-8 w-8 text-primary" />
+          <CardTitle className="text-lg 2xl:text-xl font-semibold text-foreground">Sakai</CardTitle>
+        </div>
+         <div className="flex items-center gap-2">
+            {/* Theme Toggle Button */}
+            {/* Brain/Memory Button Removed as it's in sidebar */}
+            {/* MoreVertical/Dev Settings Button Removed as it's in sidebar */}
         </div>
       </CardHeader>
 
@@ -755,12 +712,12 @@ const processInlineFormatting = (text: string, baseKey: string) => {
         <ScrollArea ref={scrollAreaRef} className="h-full bg-background/60 dark:bg-black/10">
           <div className="p-4 sm:p-6 space-y-6">
             {messages.length === 0 && !isLoading && (
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-4">
-                <SakaiLogo className="h-24 w-24 text-primary opacity-70 mb-4" data-ai-hint="logo large"/>
-                <p className="text-xl font-medium">Bienvenue ! Je suis Sakai.</p>
-                <p className="text-sm max-w-md">
-                  Comment puis-je vous aider aujourd&apos;hui ?<br />
-                  Posez une question, demandez de générer une image, ou téléversez des fichiers pour analyse. Utilisez les icônes ci-dessous pour des actions rapides !
+               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-6">
+                <SakaiLogo className="h-28 w-28 text-primary opacity-70 mb-4" data-ai-hint="logo large"/>
+                <p className="text-xl 2xl:text-2xl font-medium">Bonjour {currentUserName || "l'ami"} ! Je suis Sakai.</p>
+                <p className="text-sm 2xl:text-base max-w-md">
+                  Comment puis-je t'aider aujourd'hui ?<br />
+                  Pose une question, demande-moi de générer une image, ou téléverse des fichiers pour analyse.
                 </p>
               </div>
             )}
@@ -774,11 +731,11 @@ const processInlineFormatting = (text: string, baseKey: string) => {
                 <div
                   key={msg.id || `msg-${msgIndex}-${Date.now()}-${Math.random()}`}
                   className={cn(
-                    "flex items-end gap-3 max-w-[85%] break-words",
+                    "flex items-end gap-3 max-w-[85%] 2xl:max-w-[80%] break-words",
                     isUser ? 'ml-auto flex-row-reverse' : 'mr-auto flex-row'
                   )}
                 >
-                  {isUser ? <User className="h-7 w-7 shrink-0 text-muted-foreground/80 mb-1.5 rounded-full bg-muted p-1" /> : <Bot className="h-7 w-7 shrink-0 text-primary mb-1.5 rounded-full bg-primary/10 p-1" />}
+                  {isUser ? <User className="h-7 w-7 shrink-0 text-muted-foreground/80 mb-1.5 rounded-full bg-muted p-1" /> : <SakaiLogo className="h-7 w-7 shrink-0 text-primary mb-1.5 rounded-full bg-primary/10 p-0.5" />}
                   <div className={cn(
                      "p-3.5 rounded-xl shadow-md transition-all duration-200 ease-out",
                      isUser
@@ -810,7 +767,7 @@ const processInlineFormatting = (text: string, baseKey: string) => {
         {uploadedFiles.length > 0 && (
           <div className="w-full mb-1.5 space-y-1.5">
             <div className="flex justify-between items-center">
-              <p className="text-xs text-muted-foreground font-medium">Fichiers téléversés :</p>
+              <p className="text-xs text-muted-foreground font-medium">Fichiers téléversés ({uploadedFiles.length}) :</p>
               <Button variant="ghost" size="sm" onClick={clearAllUploadedFiles} className="text-xs text-destructive hover:text-destructive/80 h-auto py-1">
                 <Trash2 className="h-3 w-3 mr-1" /> Tout effacer
               </Button>
@@ -921,6 +878,6 @@ const processInlineFormatting = (text: string, baseKey: string) => {
           </DialogContent>
         </Dialog>
     )}
-  </div>
+  </Card>
   );
 }

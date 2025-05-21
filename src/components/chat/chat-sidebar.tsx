@@ -9,8 +9,8 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Brain, SlidersHorizontal, Info, Trash2, LogOut, Menu, Plus,
-  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, User as UserIcon, Settings, PanelLeftClose, PanelRightClose
-} from 'lucide-react';
+  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, User as UserIcon, Settings, PanelLeftClose, PanelRightClose, Wand2, Brush, Image as ImageIconLucide, Lightbulb
+} from 'lucide-react'; // Added missing imports for icons
 import { SakaiLogo } from '@/components/icons/logo';
 import type { ChatSession } from '@/app/page'; 
 import { cn } from '@/lib/utils';
@@ -34,6 +34,8 @@ interface ChatSidebarProps {
   onOpenContactDialog: () => void;
   isSidebarCollapsed: boolean;
   toggleSidebarCollapse: () => void;
+  sakaiCurrentThought: string | null; // New prop
+  isDevSakaiAmbianceEnabled: boolean; // New prop
 }
 
 export function ChatSidebar({
@@ -52,6 +54,8 @@ export function ChatSidebar({
   onOpenContactDialog,
   isSidebarCollapsed,
   toggleSidebarCollapse,
+  sakaiCurrentThought,
+  isDevSakaiAmbianceEnabled,
 }: ChatSidebarProps) {
   const router = useRouter();
 
@@ -67,10 +71,10 @@ export function ChatSidebar({
   const sidebarContent = (
     <div className={cn(
       "flex flex-col h-full bg-card text-card-foreground border-r transition-all duration-300 ease-in-out",
-      isSidebarCollapsed ? "w-20" : "w-72"
+      isSidebarCollapsed ? "w-20 items-center" : "w-72" // Added items-center for collapsed state
     )}>
-      <div className={cn("p-4 border-b", isSidebarCollapsed ? "h-[69px]" : "")}>
-        <div className="flex items-center justify-between">
+      <div className={cn("p-4 border-b", isSidebarCollapsed ? "h-[69px] flex justify-center items-center" : "")}>
+        <div className="flex items-center justify-between w-full">
           <Link href="/" className="flex items-center gap-2" onClick={() => setIsMobileMenuOpen(false)}>
             <SakaiLogo className="h-8 w-8 text-primary shrink-0" />
             {!isSidebarCollapsed && <h1 className="text-xl font-semibold truncate">Sakai</h1>}
@@ -83,16 +87,23 @@ export function ChatSidebar({
         </div>
       </div>
 
-      <div className={cn("p-3", isSidebarCollapsed ? "mt-0" : "")}>
+      <div className={cn("p-3", isSidebarCollapsed ? "mt-0 w-full flex justify-center" : "")}>
         <Button 
           onClick={() => { onNewChat(); setIsMobileMenuOpen(false); }} 
-          className={cn("w-full", isSidebarCollapsed ? "px-0 aspect-square" : "")}
+          className={cn("w-full", isSidebarCollapsed ? "px-0 aspect-square h-12 w-12" : "")} // Adjusted size for collapsed
           aria-label={isSidebarCollapsed ? "Nouveau Chat" : undefined}
         >
-          <Plus className={cn(isSidebarCollapsed ? "" : "mr-2", "h-4 w-4")} />
+          <Plus className={cn(isSidebarCollapsed ? "" : "mr-2", "h-5 w-5")} /> {/* Adjusted icon size */}
           {!isSidebarCollapsed && "Nouveau Chat"}
         </Button>
       </div>
+
+      {isDevSakaiAmbianceEnabled && sakaiCurrentThought && !isSidebarCollapsed && (
+        <div className="px-3 py-2 text-xs text-muted-foreground italic border-b border-dashed mx-2 my-1 text-center">
+          <Lightbulb className="inline h-3 w-3 mr-1 text-primary/70" /> {sakaiCurrentThought}
+        </div>
+      )}
+
 
       <ScrollArea className="flex-1 px-3 mb-2">
         <div className="space-y-1">
@@ -105,7 +116,7 @@ export function ChatSidebar({
                 variant={activeChatId === session.id ? "secondary" : "ghost"}
                 className={cn(
                   "w-full justify-start h-9 text-sm",
-                  isSidebarCollapsed ? "px-0 aspect-square flex items-center justify-center" : "truncate pr-8"
+                  isSidebarCollapsed ? "px-0 aspect-square flex items-center justify-center h-10 w-10" : "truncate pr-8" // Adjusted for collapsed
                 )}
                 onClick={() => { onSelectChat(session.id); setIsMobileMenuOpen(false); }}
                 title={session.title}
@@ -130,12 +141,11 @@ export function ChatSidebar({
         </div>
       </ScrollArea>
 
-      {/* Options Popover Trigger */}
       <div className={cn("mt-auto p-3 border-t", isSidebarCollapsed ? "flex flex-col items-center space-y-2" : "space-y-1.5")}>
          <Popover>
           <PopoverTrigger asChild>
-            <Button variant="ghost" className={cn("w-full text-sm", isSidebarCollapsed ? "px-0 aspect-square" : "justify-start")}>
-              <Settings className={cn(isSidebarCollapsed ? "" : "mr-2", "h-4 w-4")} />
+            <Button variant="ghost" className={cn("w-full text-sm", isSidebarCollapsed ? "px-0 aspect-square h-10 w-10" : "justify-start")}>
+              <Settings className={cn(isSidebarCollapsed ? "" : "mr-2", "h-5 w-5")} />
               {!isSidebarCollapsed && "Options & Plus"}
             </Button>
           </PopoverTrigger>
@@ -158,7 +168,7 @@ export function ChatSidebar({
                 </Button>
               ))}
               <DropdownMenuSeparator />
-              <div className={cn("pt-1", isSidebarCollapsed ? "mx-auto" : "")}>
+              <div className={cn("pt-1 flex justify-center", isSidebarCollapsed ? "" : "")}>
                  <ThemeToggleButton />
               </div>
               <Button variant="outline" className="w-full text-sm h-9 mt-1" onClick={onLogout}>
@@ -181,7 +191,6 @@ export function ChatSidebar({
 
   return (
     <>
-      {/* Desktop Sidebar */}
       <div className={cn(
         "hidden md:block shrink-0 transition-all duration-300 ease-in-out",
         isSidebarCollapsed ? "w-20" : "w-72"
@@ -189,7 +198,6 @@ export function ChatSidebar({
         {sidebarContent}
       </div>
 
-      {/* Mobile Sidebar Trigger */}
       <Button 
         variant="outline" 
         size="icon" 
@@ -200,7 +208,6 @@ export function ChatSidebar({
         <Menu className="h-5 w-5" />
       </Button>
 
-      {/* Mobile Sheet */}
       <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
         <SheetContent side="left" className="p-0 w-72 border-r-0">
           {sidebarContent}
@@ -209,5 +216,3 @@ export function ChatSidebar({
     </>
   );
 }
-
-// @keyframes slideUpAndFade removed from here

@@ -2,7 +2,7 @@
 // src/app/auth/login/page.tsx
 "use client";
 
-import { useState, FormEvent, useEffect, useCallback } from 'react';
+import { useState, FormEvent, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,9 @@ export default function LoginPage() {
 
   const [dynamicSubtitle, setDynamicSubtitle] = useState("Connectez-vous pour discuter avec votre assistant IA.");
   const [isSubtitleLoading, setIsSubtitleLoading] = useState(false);
-  const [debounceTimeout, setDebounceTimeout] = useState<NodeJS.Timeout | null>(null);
+  
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchLoginThought = useCallback(async (currentEmail: string) => {
     setIsSubtitleLoading(true);
@@ -49,26 +51,65 @@ export default function LoginPage() {
 
   useEffect(() => {
     fetchLoginThought(""); // Initial thought
-  }, [fetchLoginThought]);
 
-  useEffect(() => {
-    if (debounceTimeout) {
-      clearTimeout(debounceTimeout);
-    }
-    const newTimeout = setTimeout(() => {
-      if (email.length > 2 || email.length === 0) { // Fetch if email is somewhat typed or cleared
-        fetchLoginThought(email);
-      }
-    }, 1000); // Debounce for 1 second
-    setDebounceTimeout(newTimeout);
-
+    // Cleanup function for the interval
     return () => {
-      if (newTimeout) {
-        clearTimeout(newTimeout);
+      if (intervalTimeoutRef.current) {
+        clearInterval(intervalTimeoutRef.current);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email, fetchLoginThought]); // Not including debounceTimeout in deps
+  }, [fetchLoginThought]); // Run once on mount
+
+  // Debounced fetch for email input
+  useEffect(() => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    debounceTimeoutRef.current = setTimeout(() => {
+      if (email.length > 0) { // Fetch only if email has content
+        fetchLoginThought(email);
+         if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current); // Stop interval if user is typing
+      } else if (email.length === 0 && !intervalTimeoutRef.current) {
+        // If email is cleared and no interval running, fetch once and restart interval
+        fetchLoginThought("");
+        intervalTimeoutRef.current = setInterval(() => {
+            if (!document.hasFocus() || document.activeElement !== document.getElementById('email')) { // Only refresh if page/input not focused
+                fetchLoginThought("");
+            }
+        }, 20000); // Refresh generic thought every 20s if email is empty and page/input not focused
+      }
+    }, 700); // Debounce for 700ms
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [email, fetchLoginThought]);
+
+  // Interval for generic thoughts when email is empty
+  useEffect(() => {
+    if (email.length === 0) {
+      if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current); // Clear any existing interval
+      intervalTimeoutRef.current = setInterval(() => {
+        // Only refresh if the page is visible and email input is not focused, to be less intrusive
+        if (document.visibilityState === 'visible' && document.activeElement !== document.getElementById('email')) {
+            fetchLoginThought("");
+        }
+      }, 20000); // Refresh every 20 seconds
+    } else {
+      if (intervalTimeoutRef.current) {
+        clearInterval(intervalTimeoutRef.current);
+        intervalTimeoutRef.current = null;
+      }
+    }
+    return () => {
+      if (intervalTimeoutRef.current) {
+        clearInterval(intervalTimeoutRef.current);
+      }
+    };
+  }, [email, fetchLoginThought]);
 
 
   useEffect(() => {
@@ -110,8 +151,12 @@ export default function LoginPage() {
           case 'auth/invalid-email':
             errorMessage = "L'adresse email n'est pas valide.";
             break;
-          default:
-            errorMessage = "Erreur de connexion : " + error.message;
+          default: // Firebase might return specific error messages directly
+             if ((error as any).message && (error as any).message.includes('auth/invalid-credential')) {
+                 errorMessage = "Email ou mot de passe incorrect.";
+             } else {
+                errorMessage = "Erreur de connexion : " + error.message;
+             }
         }
       }
       toast({ title: "Erreur de connexion", description: errorMessage, variant: "destructive" });
@@ -161,8 +206,8 @@ export default function LoginPage() {
             <SakaiLogo className="h-16 w-16 text-primary" />
           </div>
           <CardTitle className="text-3xl font-bold">Bienvenue sur Sakai</CardTitle>
-          <CardDescription className="min-h-[20px] transition-all duration-300">
-            {isSubtitleLoading ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : dynamicSubtitle}
+          <CardDescription className="min-h-[40px] transition-all duration-300 text-sm"> {/* Increased min-height */}
+            {isSubtitleLoading && !dynamicSubtitle.includes("Connectez-vous") ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : dynamicSubtitle}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -197,13 +242,14 @@ export default function LoginPage() {
                   size="icon"
                   className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Cacher le mot de passe" : "Afficher le mot de passe"}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
             <Button type="submit" className="w-full text-lg py-3" disabled={isLoading || isGoogleLoading}>
-              {isLoading ? 'Connexion en cours...' : 'Se connecter'}
+              {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connexion...</> : 'Se connecter'}
             </Button>
           </form>
           <div className="my-4 flex items-center before:flex-1 before:border-t before:border-border after:flex-1 after:border-t after:border-border">
@@ -211,7 +257,7 @@ export default function LoginPage() {
           </div>
           <Button variant="outline" className="w-full text-lg py-3" onClick={handleGoogleSignIn} disabled={isLoading || isGoogleLoading}>
             {isGoogleLoading ? (
-              'Connexion Google en cours...'
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connexion Google...</>
             ) : (
               <>
                 <GoogleIcon className="mr-2 h-5 w-5" /> Se connecter avec Google

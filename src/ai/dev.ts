@@ -4,9 +4,11 @@ config();
 
 import '@/ai/flows/chat-assistant-flow.ts';
 import '@/ai/flows/generate-image-flow.ts';
-import '@/ai/flows/generate-chat-title-flow.ts'; // Added
-import '@/ai/flows/generate-login-thought-flow.ts'; // Added
+import '@/ai/flows/generate-chat-title-flow.ts'; 
+import '@/ai/flows/generate-login-thought-flow.ts';
+import '@/ai/flows/generate-sakai-thought-flow.ts'; // Added new flow
 
-// generate-project-flow.ts import removed
-// analyze-image-flow.ts and process-document-flow.ts are no longer imported
-// as their functionality is now part of chat-assistant-flow.ts
+// Removed flows:
+// generate-project-flow.ts
+// analyze-image-flow.ts (merged into chat-assistant)
+// process-document-flow.ts (merged into chat-assistant)
