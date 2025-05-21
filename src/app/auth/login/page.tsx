@@ -9,25 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
-import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
 import { Eye, EyeOff } from 'lucide-react';
-
-const REGISTERED_USERS_KEY = 'sakaiRegisteredUsers';
-const CURRENT_USER_KEY = 'sakaiSimulatedUser';
-
-interface RegisteredUser {
-  id: string;
-  name: string;
-  email: string;
-  passwordHash: string; // Plain password for simulation
-}
-
-interface CurrentUser {
-  id: string;
-  name: string;
-  email: string;
-}
+import { auth } from '@/lib/firebase'; // Import Firebase auth instance
+import { signInWithEmailAndPassword, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -36,13 +22,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [currentUser, setCurrentUser] = useLocalStorage<CurrentUser | null>(CURRENT_USER_KEY, null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
 
   useEffect(() => {
-    if (currentUser) {
-      router.push('/'); // Redirect if already logged in
-    }
-  }, [currentUser, router]);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        router.push('/'); // Redirect if already logged in
+      }
+      setCheckingAuth(false);
+    });
+    return () => unsubscribe(); // Cleanup subscription on unmount
+  }, [router]);
 
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
@@ -56,41 +47,40 @@ export default function LoginPage() {
     }
     
     try {
-      const registeredUsersData = localStorage.getItem(REGISTERED_USERS_KEY);
-      const registeredUsers: RegisteredUser[] = registeredUsersData ? JSON.parse(registeredUsersData) : [];
-
-      const foundUser = registeredUsers.find(user => user.email === email);
-
-      if (!foundUser) {
-        toast({ title: "Erreur de connexion", description: "Aucun compte trouvé avec cet email.", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
-      // SIMULATED PASSWORD CHECK
-      if (foundUser.passwordHash !== password) {
-        toast({ title: "Erreur de connexion", description: "Mot de passe incorrect.", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-      
-      const userToStore: CurrentUser = {
-        id: foundUser.id,
-        name: foundUser.name,
-        email: foundUser.email,
-      };
-      setCurrentUser(userToStore); // This uses useLocalStorage to set the current user
-
-      toast({ title: "Connexion réussie !", description: `Bienvenue, ${foundUser.name} !` });
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      toast({ title: "Connexion réussie !", description: `Bienvenue, ${userCredential.user.displayName || userCredential.user.email} !` });
       router.push('/');
 
     } catch (error) {
       console.error("Login error:", error);
-      toast({ title: "Erreur de connexion", description: "Une erreur est survenue. Veuillez réessayer.", variant: "destructive" });
+      let errorMessage = "Une erreur est survenue. Veuillez réessayer.";
+       if (error instanceof FirebaseError) {
+        switch (error.code) {
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+          case 'auth/invalid-credential':
+            errorMessage = "Email ou mot de passe incorrect.";
+            break;
+          case 'auth/invalid-email':
+            errorMessage = "L'adresse email n'est pas valide.";
+            break;
+          default:
+            errorMessage = "Erreur de connexion : " + error.message;
+        }
+      }
+      toast({ title: "Erreur de connexion", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
+  
+  if (checkingAuth) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">
+        <SakaiLogo className="h-16 w-16 text-primary animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">

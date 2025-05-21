@@ -8,7 +8,7 @@ import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
 import useLocalStorage from '@/hooks/use-local-storage';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
-import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare } from 'lucide-react';
+import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare, Mail, Plane, Lightbulb, Languages, ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
 import {
@@ -34,10 +34,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from '@/hooks/use-toast';
+import { auth } from '@/lib/firebase'; // Import Firebase auth instance
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 
-const CURRENT_USER_KEY = 'sakaiSimulatedUser';
-const CHAT_SESSIONS_KEY = 'sakaiChatSessions_v2';
-const ACTIVE_CHAT_ID_KEY = 'sakaiActiveChatId_v2';
 
 export interface ChatSession {
   id: string;
@@ -46,11 +45,13 @@ export interface ChatSession {
   createdAt: number;
 }
 
-interface User {
-  id: string;
-  name?: string;
-  email: string;
-}
+// Keys for localStorage will now be dynamic based on user ID
+const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v2_${userId}` : 'sakaiChatSessions_v2_anonymous';
+const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v2_${userId}` : 'sakaiActiveChatId_v2_anonymous';
+const getUserMemoryKey = (userId: string | undefined) => userId ? `sakaiUserMemory_${userId}` : 'sakaiUserMemory_anonymous';
+const getDevOverrideSystemPromptKey = (userId: string | undefined) => userId ? `sakaiDevOverrideSystemPrompt_${userId}` : 'sakaiDevOverrideSystemPrompt_anonymous';
+const getDevModelTemperatureKey = (userId: string | undefined) => userId ? `sakaiDevModelTemperature_${userId}` : 'sakaiDevModelTemperature_anonymous';
+
 
 const DEV_ACCESS_CODE = "1234566";
 
@@ -59,42 +60,48 @@ export default function ChatPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [user, setUser] = useLocalStorage<User | null>(CURRENT_USER_KEY, null);
-  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(CHAT_SESSIONS_KEY, []);
-  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(ACTIVE_CHAT_ID_KEY, null);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  const [userMemory, setUserMemory] = useLocalStorage<string>('sakaiUserMemory', '');
-  const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false);
+  // Dynamic keys based on currentUser.uid
+  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
+  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
+  const [userMemory, setUserMemory] = useLocalStorage<string>(getUserMemoryKey(currentUser?.uid), '');
+  const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>(getDevOverrideSystemPromptKey(currentUser?.uid), '');
+  const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
   
+  const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false);
   const [isFeaturesDialogOpen, setIsFeaturesDialogOpen] = useState(false);
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false);
   const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
-  
   const [isDevCodePromptOpen, setIsDevCodePromptOpen] = useState(false);
   const [devCodeInput, setDevCodeInput] = useState('');
   const [isDevSettingsOpen, setIsDevSettingsOpen] = useState(false);
-
-  const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>('sakaiDevOverrideSystemPrompt', '');
-  const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>('sakaiDevModelTemperature', undefined);
-  
   const [tempOverrideSystemPrompt, setTempOverrideSystemPrompt] = useState('');
   const [tempModelTemperature, setTempModelTemperature] = useState(0.7);
-
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     setPageIsMounted(true);
-  }, []);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (!user) {
+        router.push('/auth/login');
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
   
   useEffect(() => {
-    if (pageIsMounted) {
+    if (pageIsMounted && currentUser) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
       setTempModelTemperature(devModelTemperature ?? 0.7);
     }
-  }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted]);
+  }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted, currentUser]);
 
   const handleNewChat = useCallback(() => {
-    if (!user) return; // Do not create new chat if no user
+    if (!currentUser) return; 
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
       id: newChatId,
@@ -105,27 +112,22 @@ export default function ChatPage() {
     setChatSessions(prevSessions => [newChatSession, ...prevSessions]);
     setActiveChatId(newChatId);
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  }, [user, setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
+  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
 
   useEffect(() => {
-    if (!pageIsMounted) return;
+    if (!pageIsMounted || authLoading || !currentUser) return;
 
-    if (!user) {
-      router.push('/auth/login');
-    } else {
-      if (chatSessions.length === 0) {
-        handleNewChat();
-      } else if (!activeChatId || !chatSessions.find(cs => cs.id === activeChatId)) {
-         const firstValidSession = chatSessions.length > 0 ? chatSessions[0].id : null;
-         if (firstValidSession) {
-            setActiveChatId(firstValidSession);
-         } else {
-            // This case implies chatSessions became empty after user was validated, should be rare.
-            handleNewChat();
-         }
-      }
+    if (chatSessions.length === 0) {
+      handleNewChat();
+    } else if (!activeChatId || !chatSessions.find(cs => cs.id === activeChatId)) {
+        const firstValidSession = chatSessions.length > 0 ? chatSessions[0].id : null;
+        if (firstValidSession) {
+          setActiveChatId(firstValidSession);
+        } else {
+          handleNewChat();
+        }
     }
-  }, [pageIsMounted, user, router, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
+  }, [pageIsMounted, authLoading, currentUser, router, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
 
 
   const activeChatMessages = chatSessions.find(cs => cs.id === activeChatId)?.messages || [];
@@ -156,7 +158,7 @@ export default function ChatPage() {
           setActiveChatId(newSessions[0].id);
         } else {
           setActiveChatId(null); 
-          // handleNewChat will be triggered by useEffect if user is still logged in
+          if (currentUser) handleNewChat(); // Create a new chat if user is still logged in
         }
       }
       return newSessions;
@@ -164,12 +166,25 @@ export default function ChatPage() {
     toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
   };
   
-  const handleLogout = () => {
-    setUser(null); // Clears current user from localStorage via useLocalStorage hook
-    setChatSessions([]); // Clear chat sessions for the logged out user
-    setActiveChatId(null); // Clear active chat id
-    // The useEffect above will detect user is null and redirect to /auth/login
-    toast({ title: "Déconnexion", description: "Vous avez été déconnecté."});
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // `onAuthStateChanged` will set currentUser to null and trigger redirect
+      // Clearing local storage for chat sessions etc. for the logged-out user
+      // Note: useLocalStorage hooks for these will re-initialize with default values
+      // when currentUser.uid becomes undefined.
+      setChatSessions([]);
+      setActiveChatId(null);
+      setUserMemory('');
+      setDevOverrideSystemPrompt('');
+      setDevModelTemperature(undefined);
+
+      toast({ title: "Déconnexion", description: "Vous avez été déconnecté."});
+      // router.push('/auth/login'); // onAuthStateChanged handles this
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
+    }
   };
 
   const handleSaveMemory = (newMemory: string) => {
@@ -222,11 +237,11 @@ export default function ChatPage() {
     });
   };
 
-  if (!pageIsMounted || (!user && router.pathname !== '/auth/login' && router.pathname !== '/auth/signup')) { 
+  if (!pageIsMounted || authLoading || !currentUser) { 
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">Chargement de Sakai...</p>
+        <p className="mt-4 text-muted-foreground">{authLoading ? "Vérification de l'authentification..." : "Chargement de Sakai..."}</p>
       </div>
     );
   }
@@ -307,7 +322,7 @@ export default function ChatPage() {
             <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
               <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique codé par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
-              <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle (via Genkit et les modèles Gemini de Google) pour vous offrir une expérience interactive et enrichissante.</p>
+              <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle pour vous offrir une expérience interactive et enrichissante.</p>
               <p>Version: 1.8.0 (Authentification & Personnalisation)</p>
               <p className="mt-4 text-xs text-muted-foreground">
                 © Tous droits réservés.<br />
@@ -414,7 +429,7 @@ export default function ChatPage() {
                 </Button>
                 <DialogClose asChild>
                     <Button type="button" variant="ghost" onClick={()=> {
-                      if (pageIsMounted) {
+                      if (pageIsMounted && currentUser) {
                         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
                         setTempModelTemperature(devModelTemperature ?? 0.7);
                       }

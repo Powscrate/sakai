@@ -11,15 +11,10 @@ import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
 import { SakaiLogo } from '@/components/icons/logo';
 import { Eye, EyeOff } from 'lucide-react';
+import { auth } from '@/lib/firebase'; // Import Firebase auth instance
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
 
-const REGISTERED_USERS_KEY = 'sakaiRegisteredUsers';
-
-interface RegisteredUser {
-  id: string;
-  name: string;
-  email: string;
-  passwordHash: string; // For simulation, this will be the plain password. In a real app, hash it!
-}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -58,30 +53,34 @@ export default function SignupPage() {
     }
 
     try {
-      const registeredUsersData = localStorage.getItem(REGISTERED_USERS_KEY);
-      const registeredUsers: RegisteredUser[] = registeredUsersData ? JSON.parse(registeredUsersData) : [];
-
-      if (registeredUsers.find(user => user.email === email)) {
-        toast({ title: "Erreur d'inscription", description: "Un compte avec cet email existe déjà.", variant: "destructive" });
-        setIsLoading(false);
-        return;
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Optionally update the user's profile with their name
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: name });
       }
-
-      const newUser: RegisteredUser = {
-        id: `user-${Date.now()}`,
-        name,
-        email,
-        passwordHash: password, // In a real app, HASH THE PASSWORD!
-      };
-      registeredUsers.push(newUser);
-      localStorage.setItem(REGISTERED_USERS_KEY, JSON.stringify(registeredUsers));
-
+      
       toast({ title: "Inscription réussie !", description: "Votre compte a été créé. Vous pouvez maintenant vous connecter." });
       router.push('/auth/login');
 
     } catch (error) {
       console.error("Signup error:", error);
-      toast({ title: "Erreur d'inscription", description: "Une erreur est survenue. Veuillez réessayer.", variant: "destructive" });
+      let errorMessage = "Une erreur est survenue. Veuillez réessayer.";
+      if (error instanceof FirebaseError) {
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = "Un compte avec cet email existe déjà.";
+            break;
+          case 'auth/weak-password':
+            errorMessage = "Le mot de passe est trop faible. Veuillez choisir un mot de passe plus sécurisé.";
+            break;
+          case 'auth/invalid-email':
+            errorMessage = "L'adresse email n'est pas valide.";
+            break;
+          default:
+            errorMessage = "Erreur d'inscription : " + error.message;
+        }
+      }
+      toast({ title: "Erreur d'inscription", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
