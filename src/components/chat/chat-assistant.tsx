@@ -44,15 +44,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
-import { generateImage, type GenerateImageOutput, type GenerateImageInput } from '@/ai/flows/generate-image-flow';
+import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
-import { ThemeToggleButton } from './theme-toggle-button'; // Assuming this is still desired
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-// Import necessary languages for syntax highlighting
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
@@ -66,7 +64,6 @@ import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp';
 import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
 import shell from 'react-syntax-highlighter/dist/esm/languages/prism/shell-session';
 
-// Register languages
 SyntaxHighlighter.registerLanguage('tsx', tsx);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
 SyntaxHighlighter.registerLanguage('ts', typescript);
@@ -127,6 +124,7 @@ export function ChatAssistant({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // Define featureActions inside the component
   const featureActions = [
     { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
     { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
@@ -234,7 +232,7 @@ export function ChatAssistant({
 
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
-    setCurrentStreamingMessageId(null);
+    setCurrentStreamingMessageId(null); // Ensure cursor is not shown for this special handling
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
@@ -247,21 +245,22 @@ export function ChatAssistant({
 
     const assistantPlaceholderMessage: ChatMessage = {
       role: 'model',
-      parts: [{ type: 'text', text: `Sakai génère une image pour : "${promptText}"...` }],
+      parts: [{ type: 'text', text: `Sakai génère une image pour : "${promptText.substring(0,50)}..."` }],
       id: imageGenPlaceholderId,
       createdAt: Date.now() + 1,
     };
     
-    const currentMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
-    setMessages(currentMessages);
-    onMessagesUpdate(currentMessages);
+    // Update local messages and then call onMessagesUpdate for parent
+    const updatedLocalMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
+    setMessages(updatedLocalMessages);
+    onMessagesUpdate([...messages, userPromptMessage]); // Send only user message initially to parent
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: promptText });
       let finalAssistantMessagePart: ChatMessagePart;
 
       if (result.imageUrl) {
-        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' };
+        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }; // Assuming PNG for now
       } else {
         const errorMessage = result.error || "La génération d'image a échoué ou l'URL est manquante.";
         toast({
@@ -269,19 +268,18 @@ export function ChatAssistant({
           description: errorMessage,
           variant: "destructive",
         });
-        finalAssistantMessagePart = { type: 'text' as 'text', text: `Erreur : ${errorMessage}` };
+        finalAssistantMessagePart = { type: 'text' as 'text', text: `Désolé, je n'ai pas pu générer l'image. ${errorMessage}` };
       }
       
-      const finalMessages = messages.map(msg => msg.id === imageGenUserMessageId ? userPromptMessage : msg); // Initial user message
-      const updatedFinalMessages = [...finalMessages, {
+      const finalAssistantMessage: ChatMessage = {
         role: 'model' as 'model',
         parts: [finalAssistantMessagePart],
         id: imageGenPlaceholderId, // Re-use ID for replacement
         createdAt: Date.now(),
-      }];
+      };
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
+      onMessagesUpdate([...messages, userPromptMessage, finalAssistantMessage]);
 
-      setMessages(updatedFinalMessages);
-      onMessagesUpdate(updatedFinalMessages);
 
     } catch (error: unknown) {
       console.error("Erreur de génération d'image (client):", error);
@@ -291,15 +289,14 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      const finalMessages = messages.map(msg => msg.id === imageGenUserMessageId ? userPromptMessage : msg);
-      const errorFinalMessages = [...finalMessages, { // Use a different variable name
+      const errorFinalMessage: ChatMessage = { 
         role: 'model' as 'model',
         parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-        id: imageGenPlaceholderId, // Re-use ID for replacement
+        id: imageGenPlaceholderId, 
         createdAt: Date.now(),
-      }];
-      setMessages(errorFinalMessages);
-      onMessagesUpdate(errorFinalMessages);
+      };
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? errorFinalMessage : msg));
+      onMessagesUpdate([...messages, userPromptMessage, errorFinalMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -314,12 +311,13 @@ export function ChatAssistant({
     const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
-    if (uploadedFiles.length === 0) {
+    if (uploadedFiles.length === 0) { // Only detect image generation if no files are uploaded
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
-      if (typeof e !== 'string') setInput('');
+      if (typeof e !== 'string') setInput(''); // Clear input only if it was a form submission
+      clearAllUploadedFiles(); // Clear files as well if image gen is triggered by text
       await handleImageGeneration(currentInput);
       return;
     }
@@ -332,13 +330,13 @@ export function ChatAssistant({
         else if (fileWrapper.file.name.toLowerCase().endsWith('.txt')) mimeType = 'text/plain';
         else if (fileWrapper.file.name.toLowerCase().endsWith('.pdf')) mimeType = 'application/pdf';
         else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => fileWrapper.file.name.toLowerCase().endsWith(ext))) {
-          mimeType = fileWrapper.file.type || (fileWrapper.file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+          mimeType = fileWrapper.file.type || (fileWrapper.file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'); // Basic fallback
         } else {
-          mimeType = 'application/octet-stream';
+          mimeType = 'application/octet-stream'; // Default unknown
         }
       }
       newUserMessageParts.push({
-        type: 'image', // Generic for Gemini, mimeType will differentiate
+        type: 'image', // Use 'image' for Gemini to treat as media, mimeType will specify
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -351,9 +349,7 @@ export function ChatAssistant({
     if (newUserMessageParts.length === 0) return;
 
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}`, createdAt: Date.now() };
-    let updatedMessages = [...messages, newUserMessage];
-    // setMessages(updatedMessages); // Optimistic update handled by onMessagesUpdate -> Firestore listener
-
+    
     if (typeof e !== 'string') setInput('');
     clearAllUploadedFiles();
 
@@ -361,13 +357,12 @@ export function ChatAssistant({
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
 
-    // Optimistically add user message and placeholder for assistant
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
-    updatedMessages = [...updatedMessages, assistantPlaceholderMessage];
-    setMessages(updatedMessages);
-    onMessagesUpdate([...messages, newUserMessage]); // Send only new user message for DB update initially
+    const updatedLocalMessages = [...messages, newUserMessage, assistantPlaceholderMessage];
+    setMessages(updatedLocalMessages);
+    onMessagesUpdate([...messages, newUserMessage]); // Send only new user message to parent initially for storage
 
-    const historyForApi = [...messages, newUserMessage]; // Pass current messages + new user message
+    const historyForApi = [...messages, newUserMessage]; 
 
     try {
       const readableStream = await streamChatAssistant({
@@ -378,8 +373,7 @@ export function ChatAssistant({
       });
       const reader = readableStream.getReader();
       let accumulatedText = "";
-      let finalAssistantMessageContent: ChatMessagePart[] = [];
-
+      
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
@@ -389,9 +383,9 @@ export function ChatAssistant({
 
         if (chatChunk.error) {
           console.error("Stream error from server:", chatChunk.error);
-          accumulatedText = chatChunk.error; // Show error as message content
+          accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`; 
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
-          break; // Stop processing on error
+          break; 
         }
 
         if (chatChunk.text) {
@@ -407,29 +401,28 @@ export function ChatAssistant({
         }
       }
       
-      finalAssistantMessageContent = [{type: 'text' as 'text', text: accumulatedText }];
       const finalAssistantMessage: ChatMessage = { 
         role: 'model', 
-        parts: finalAssistantMessageContent, 
+        parts: [{type: 'text' as 'text', text: accumulatedText }], 
         id: assistantMessageId, 
         createdAt: Date.now() 
       };
-      // Update the messages array with the final assistant message (replacing placeholder)
+      
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage : msg));
       onMessagesUpdate([...historyForApi, finalAssistantMessage]);
 
 
     } catch (error: any) {
       console.error("Erreur lors du streaming du chat (côté client):", error);
-      const errorMessage = error?.message || "Désolé, une erreur de communication est survenue.";
+      const errorMessageText = error?.message || "Désolé, une erreur de communication est survenue.";
       toast({
         title: "Erreur de Communication",
-        description: errorMessage,
+        description: errorMessageText,
         variant: "destructive",
       });
       const errorAssistantMessage: ChatMessage = { 
         role: 'model', 
-        parts: [{ type: 'text', text: errorMessage }], 
+        parts: [{ type: 'text', text: errorMessageText }], 
         id: assistantMessageId, 
         createdAt: Date.now() 
       };
@@ -443,7 +436,7 @@ export function ChatAssistant({
 
   const handleFeatureActionClick = (promptPrefix: string) => {
     setInput(prevInput => promptPrefix + prevInput);
-    setIsFeaturesPopoverOpen(false);
+    setIsFeaturesPopoverOpen(false); // Close popover after click
     inputRef.current?.focus();
   };
 
@@ -463,7 +456,7 @@ export function ChatAssistant({
   const handleDownloadImage = (imageDataUri: string) => {
     const link = document.createElement('a');
     link.href = imageDataUri;
-    link.download = `sakai-image-${Date.now()}.png`;
+    link.download = `sakai-image-${Date.now()}.png`; // Suggest a filename
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -474,72 +467,229 @@ export function ChatAssistant({
     setImagePreviewUrl(imageDataUri);
     setIsImagePreviewOpen(true);
   };
-
-  const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
-    const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}-${Math.random().toString(36).substring(2,7)}`;
-
-    if (part.type === 'text') {
-      const codeBlockRegex = /```(\w*)\n?([\s\S]+?)```/g;
-      let lastIndex = 0;
-      const elements = [];
-      let match;
-
-      while ((match = codeBlockRegex.exec(part.text)) !== null) {
-        if (match.index > lastIndex) {
-          elements.push(
-            <span key={`${uniquePartKey}-text-${lastIndex}`}>
-              {part.text.substring(lastIndex, match.index)}
-            </span>
-          );
-        }
-        
-        const language = match[1]?.toLowerCase() || 'plaintext';
-        const code = match[2].trim();
-        const codeBlockId = `${uniquePartKey}-code-${match.index}`;
-
+  
+  const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
+    const elements: JSX.Element[] = [];
+    let remainingText = text;
+  
+    // Regex for code blocks
+    const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/gs;
+    // Regex for headings, bold, italics, and lists (simplified)
+    const lineRegex = /^(#{1,3})\s+(.+)|(\*\*|__)(.+?)\3|(\*|_)(.+?)\5|^(\s*[-*]|\s*\d+\.)\s+(.+)/;
+  
+    let keyIndex = 0;
+  
+    const processBlock = (blockText: string, isCodeBlock: boolean, lang?: string) => {
+      if (isCodeBlock) {
+        const codeBlockId = `${uniqueKeyPrefix}-code-${keyIndex++}`;
         elements.push(
-          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2 rounded-md shadow">
+          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2 rounded-md shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50">
-              <span className="text-xs text-muted-foreground font-mono">{language}</span>
+              <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 opacity-50 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                onClick={() => handleCopyCode(code, codeBlockId)}
+                onClick={() => handleCopyCode(blockText, codeBlockId)}
                 aria-label="Copier le code"
               >
                 {copiedStates[codeBlockId] ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
             <SyntaxHighlighter
-              language={language}
-              style={vscDarkPlus} 
+              language={lang || 'plaintext'}
+              style={vscDarkPlus}
               showLineNumbers
               wrapLines={true}
               lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
-              className="!p-3 !text-sm !bg-transparent" 
-              codeTagProps={{style: {fontFamily: 'var(--font-geist-sans), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
+              className="!p-3 !text-sm !bg-transparent !font-mono"
+              codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
             >
-              {code}
+              {blockText}
             </SyntaxHighlighter>
           </div>
         );
-        lastIndex = match.index + match[0].length;
+      } else {
+        // Process non-code block text line by line for other markdown
+        const lines = blockText.split('\n');
+        let currentListType: 'ul' | 'ol' | null = null;
+        let listItems: JSX.Element[] = [];
+  
+        const flushList = () => {
+          if (listItems.length > 0) {
+            if (currentListType === 'ul') {
+              elements.push(<ul key={`${uniqueKeyPrefix}-ul-${keyIndex++}`} className="list-disc list-inside my-1 pl-4 space-y-0.5">{listItems}</ul>);
+            } else if (currentListType === 'ol') {
+              elements.push(<ol key={`${uniqueKeyPrefix}-ol-${keyIndex++}`} className="list-decimal list-inside my-1 pl-4 space-y-0.5">{listItems}</ol>);
+            }
+            listItems = [];
+            currentListType = null;
+          }
+        };
+  
+        lines.forEach((line, idx) => {
+          const lineMatch = line.match(lineRegex);
+          if (lineMatch) {
+            flushList(); // End previous list if type changes or not a list item
+            if (lineMatch[1]) { // Heading
+              const level = lineMatch[1].length;
+              const content = lineMatch[2];
+              if (level === 1) elements.push(<h1 key={`${uniqueKeyPrefix}-h1-${keyIndex++}`} className="text-xl font-semibold my-2">{content}</h1>);
+              else if (level === 2) elements.push(<h2 key={`${uniqueKeyPrefix}-h2-${keyIndex++}`} className="text-lg font-semibold my-1.5">{content}</h2>);
+              else if (level === 3) elements.push(<h3 key={`${uniqueKeyPrefix}-h3-${keyIndex++}`} className="text-md font-semibold my-1">{content}</h3>);
+            } else if (lineMatch[3]) { // Bold
+              elements.push(<strong key={`${uniqueKeyPrefix}-strong-${keyIndex++}`}>{lineMatch[4]}</strong>);
+            } else if (lineMatch[5]) { // Italic
+              elements.push(<em key={`${uniqueKeyPrefix}-em-${keyIndex++}`}>{lineMatch[6]}</em>);
+            } else if (lineMatch[7]) { // List item
+              const listMarker = lineMatch[7];
+              const itemContent = lineMatch[8];
+              const newListType = listMarker.includes('.') ? 'ol' : 'ul';
+              if (currentListType !== newListType) {
+                flushList();
+                currentListType = newListType;
+              }
+              listItems.push(<li key={`${uniqueKeyPrefix}-li-${idx}-${keyIndex++}`}>{itemContent}</li>);
+            } else {
+               // This case should ideally not be hit if regex is comprehensive for special lines
+               elements.push(<span key={`${uniqueKeyPrefix}-span-${idx}-${keyIndex++}`}>{line}</span>);
+               if (idx < lines.length -1) elements.push(<br key={`${uniqueKeyPrefix}-br-${idx}-${keyIndex++}`} />);
+            }
+          } else {
+            flushList(); // End list if line is not a list item
+            elements.push(<span key={`${uniqueKeyPrefix}-span-${idx}-${keyIndex++}`}>{line}</span>);
+            // Add <br /> only if it's not the last line and the line is not empty
+            if (idx < lines.length - 1 && line.trim() !== "") {
+                 // elements.push(<br key={`${uniqueKeyPrefix}-br-${idx}-${keyIndex++}`} />);
+            } else if (line.trim() === "" && idx < lines.length - 1 && lines[idx+1].trim() !== "") {
+                 elements.push(<div key={`${uniqueKeyPrefix}-pbr-${idx}-${keyIndex++}`} className="h-3"></div>); // Paragraph break
+            }
+          }
+        });
+        flushList(); // Flush any remaining list items
       }
-
-      if (lastIndex < part.text.length) {
-        elements.push(
-          <span key={`${uniquePartKey}-text-${lastIndex}`}>
-            {part.text.substring(lastIndex)}
-          </span>
-        );
+    };
+    
+    // Simpler block splitting: just code blocks for now, rest is paragraph
+    let lastIndex = 0;
+    let match;
+    while ((match = codeBlockRegex.exec(remainingText)) !== null) {
+      if (match.index > lastIndex) {
+        parseAndStyleNonCodeText(elements, remainingText.substring(lastIndex, match.index), uniqueKeyPrefix, keyIndex++);
       }
-      
-      const textContent = elements.length > 0 ? elements.map((el, i) => <Fragment key={`${uniquePartKey}-frag-${i}`}>{el}</Fragment>) : part.text;
+      const lang = match[1]?.toLowerCase() || 'plaintext';
+      const code = match[2].trim();
+      processBlock(code, true, lang);
+      lastIndex = match.index + match[0].length;
+    }
+  
+    if (lastIndex < remainingText.length) {
+      parseAndStyleNonCodeText(elements, remainingText.substring(lastIndex), uniqueKeyPrefix, keyIndex++);
+    }
+  
+    return elements;
+  };
 
+  const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, uniqueKeyPrefix: string, blockKeyIndex: number) => {
+    const lines = textBlock.split('\n');
+    let currentListType: 'ul' | 'ol' | null = null;
+    let listItems: JSX.Element[] = [];
+    let keyIndex = 0;
+
+    const flushList = () => {
+        if (listItems.length > 0) {
+            const listKey = `${uniqueKeyPrefix}-list-${blockKeyIndex}-${keyIndex++}`;
+            if (currentListType === 'ul') {
+                elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
+            } else if (currentListType === 'ol') {
+                elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
+            }
+            listItems = [];
+        }
+        currentListType = null;
+    };
+
+    lines.forEach((line, lineIdx) => {
+        const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
+        const boldMatch = line.match(/(\*\*|__)(.*?)\1/g); // May match multiple
+        const italicMatch = line.match(/(\*|_)(.*?)\1/g); // May match multiple
+        const listItemMatch = line.match(/^\s*([-*]|\d+\.)\s+(.*)/);
+
+        if (headingMatch) {
+            flushList();
+            const level = headingMatch[1].length;
+            const content = headingMatch[2];
+            const headingKey = `${uniqueKeyPrefix}-h${level}-${blockKeyIndex}-${keyIndex++}`;
+            if (level === 1) elements.push(<h1 key={headingKey} className="text-xl font-semibold my-3 pb-1 border-b">{content}</h1>);
+            else if (level === 2) elements.push(<h2 key={headingKey} className="text-lg font-semibold my-2 pb-0.5 border-b">{content}</h2>);
+            else elements.push(<h3 key={headingKey} className="text-md font-semibold my-1.5">{content}</h3>);
+        } else if (listItemMatch) {
+            const listMarker = listItemMatch[1];
+            const itemContent = listItemMatch[2];
+            const newListType = listMarker.includes('.') ? 'ol' : 'ul';
+
+            if (currentListType !== newListType && listItems.length > 0) flushList();
+            currentListType = newListType;
+            
+            // Process bold/italic within list item
+            const processedItemContent = processInlineFormatting(itemContent, `${uniqueKeyPrefix}-li-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
+            listItems.push(<li key={`${uniqueKeyPrefix}-li-${blockKeyIndex}-${lineIdx}-${keyIndex++}`}>{processedItemContent}</li>);
+        } else {
+            flushList();
+            if (line.trim() === '') {
+                elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-3"></div>); // Paragraph break for empty line
+            } else {
+                 // Process bold/italic for normal paragraph lines
+                const processedLine = processInlineFormatting(line, `${uniqueKeyPrefix}-p-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
+                elements.push(<p key={`${uniqueKeyPrefix}-p-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="my-1">{processedLine}</p>);
+            }
+        }
+    });
+    flushList(); // Flush any remaining list items at the end of the block
+};
+
+const processInlineFormatting = (text: string, baseKey: string) => {
+    // This is a very simplified parser. For robust markdown, a library is needed.
+    // It handles simple cases of **bold** and *italic*.
+    // It doesn't handle nested or complex combinations well.
+    const parts = [];
+    let remainingText = text;
+    let keyIdx = 0;
+
+    // Regex to find first occurrence of **bold** or *italic*
+    const inlineRegex = /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3/;
+    let match;
+
+    while ((match = inlineRegex.exec(remainingText)) !== null) {
+        // Add text before the match
+        if (match.index > 0) {
+            parts.push(<span key={`${baseKey}-txt-${keyIdx++}`}>{remainingText.substring(0, match.index)}</span>);
+        }
+        // Add the bold/italic part
+        if (match[2]) { // Bold
+            parts.push(<strong key={`${baseKey}-strong-${keyIdx++}`}>{match[2]}</strong>);
+        } else if (match[4]) { // Italic
+            parts.push(<em key={`${baseKey}-em-${keyIdx++}`}>{match[4]}</em>);
+        }
+        remainingText = remainingText.substring(match.index + match[0].length);
+    }
+
+    // Add any remaining text
+    if (remainingText) {
+        parts.push(<span key={`${baseKey}-txt-${keyIdx++}`}>{remainingText}</span>);
+    }
+    return <>{parts}</>;
+};
+
+
+  const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
+    const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}-${Math.random().toString(36).substring(2,7)}`;
+
+    if (part.type === 'text') {
+      const styledTextElements = parseAndStyleText(part.text, uniquePartKey);
       return (
         <div key={uniquePartKey} className="text-sm whitespace-pre-wrap leading-relaxed">
-            {textContent}
+            {styledTextElements}
             {isLastMessageOfList && message.role === 'model' && isLoading && message.id === currentStreamingMessageId && (
                 <span className="blinking-cursor-span">▋</span>
             )}
@@ -597,9 +747,8 @@ export function ChatAssistant({
       <CardHeader className="shrink-0 border-b p-4 flex flex-row items-center justify-between bg-card">
         <div className="flex items-center gap-3">
           <SakaiLogo className="h-7 w-7 text-primary" />
-          <CardTitle className="text-lg font-semibold text-foreground">Sakai Assistant</CardTitle>
+          <CardTitle className="text-lg font-semibold text-foreground">Sakai</CardTitle>
         </div>
-        {/* More options menu could be here if needed later */}
       </CardHeader>
 
       <CardContent className="flex-1 p-0 overflow-hidden">

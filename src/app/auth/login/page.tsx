@@ -1,7 +1,8 @@
+
 // src/app/auth/login/page.tsx
 "use client";
 
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,10 +12,11 @@ import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
 import { SakaiLogo } from '@/components/icons/logo';
 import { GoogleIcon } from '@/components/icons/google-icon';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { auth, googleProvider } from '@/lib/firebase'; 
 import { signInWithEmailAndPassword, onAuthStateChanged, signInWithPopup, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
+import { generateLoginThought } from '@/ai/flows/generate-login-thought-flow';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,6 +27,48 @@ export default function LoginPage() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+
+  const [dynamicSubtitle, setDynamicSubtitle] = useState("Connectez-vous pour discuter avec votre assistant IA.");
+  const [isSubtitleLoading, setIsSubtitleLoading] = useState(false);
+  const [debounceTimeout, setDebounceTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  const fetchLoginThought = useCallback(async (currentEmail: string) => {
+    setIsSubtitleLoading(true);
+    try {
+      const result = await generateLoginThought({ emailFragment: currentEmail });
+      if (result.thought) {
+        setDynamicSubtitle(result.thought);
+      }
+    } catch (error) {
+      console.error("Error fetching login thought:", error);
+      // Keep default or previous subtitle on error
+    } finally {
+      setIsSubtitleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLoginThought(""); // Initial thought
+  }, [fetchLoginThought]);
+
+  useEffect(() => {
+    if (debounceTimeout) {
+      clearTimeout(debounceTimeout);
+    }
+    const newTimeout = setTimeout(() => {
+      if (email.length > 2 || email.length === 0) { // Fetch if email is somewhat typed or cleared
+        fetchLoginThought(email);
+      }
+    }, 1000); // Debounce for 1 second
+    setDebounceTimeout(newTimeout);
+
+    return () => {
+      if (newTimeout) {
+        clearTimeout(newTimeout);
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email, fetchLoginThought]); // Not including debounceTimeout in deps
 
 
   useEffect(() => {
@@ -117,7 +161,9 @@ export default function LoginPage() {
             <SakaiLogo className="h-16 w-16 text-primary" />
           </div>
           <CardTitle className="text-3xl font-bold">Bienvenue sur Sakai</CardTitle>
-          <CardDescription>Connectez-vous pour discuter avec votre assistant IA.</CardDescription>
+          <CardDescription className="min-h-[20px] transition-all duration-300">
+            {isSubtitleLoading ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : dynamicSubtitle}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-6">
