@@ -1,21 +1,18 @@
-
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { getAuth, type Auth, GoogleAuthProvider } from "firebase/auth"; // Added GoogleAuthProvider
 import { getFirestore, type Firestore } from "firebase/firestore";
 
 // IMPORTANT: Remplacez ceci par la configuration réelle de votre projet Firebase
 // Vous trouverez ces informations dans la console Firebase :
 // Paramètres du projet > Général > Vos applications > Application Web > SDK setup & configuration
 const firebaseConfig = {
-  apiKey: "VOTRE_VRAIE_API_KEY_ICI",
-  authDomain: "VOTRE_VRAI_AUTH_DOMAIN_ICI.firebaseapp.com",
-  projectId: "VOTRE_VRAI_PROJECT_ID_ICI",
-  storageBucket: "VOTRE_VRAI_STORAGE_BUCKET_ICI.appspot.com",
-  messagingSenderId: "VOTRE_VRAI_MESSAGING_SENDER_ID_ICI",
-  appId: "VOTRE_VRAIE_APP_ID_ICI",
-  // measurementId est optionnel, mais si vous l'avez, incluez-le.
-  // measurementId: "G-VOTRE_MEASUREMENT_ID_ICI"
+  apiKey: "AIzaSyBaIqMl3x5Y2DcHn-9xsZLhSS3jOG_oVP8",
+  authDomain: "life-insights-gv75d.firebaseapp.com",
+  projectId: "life-insights-gv75d",
+  storageBucket: "life-insights-gv75d.firebasestorage.app",
+  messagingSenderId: "1093739890237",
+  appId: "1:1093739890237:web:7d353c8d933ffeb7468c54"
 };
 
 // Initialiser Firebase
@@ -28,5 +25,6 @@ if (!getApps().length) {
 
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
+const googleProvider = new GoogleAuthProvider(); // Added GoogleAuthProvider instance
 
-export { app, auth, db };
+export { app, auth, db, googleProvider }; // Exported googleProvider

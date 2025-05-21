@@ -1,4 +1,3 @@
-
 // src/components/chat/chat-sidebar.tsx
 "use client";
 
@@ -8,7 +7,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   Brain, SlidersHorizontal, Info, Trash2, LogOut, Menu, Plus,
-  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Sparkles, FileText, Image as ImageIcon, Laugh, Lightbulb, Languages, MessageSquarePlus, Brush, Loader2 // Added Loader2
+  ChevronDown, ChevronUp, MessageSquare, Contact, Zap, Sparkles, FileText, 
+  Image as ImageIconLucide, Laugh, Lightbulb, Languages, MessageSquarePlus, Brush, Loader2, User as UserIcon
 } from 'lucide-react';
 import { SakaiLogo } from '@/components/icons/logo';
 import type { ChatSession } from '@/app/page'; 
@@ -30,7 +30,7 @@ interface ChatSidebarProps {
   onOpenFeaturesDialog: () => void;
   onOpenAboutDialog: () => void;
   onOpenContactDialog: () => void;
-  isLoading: boolean; // Added isLoading prop
+  isLoading: boolean; 
 }
 
 export function ChatSidebar({
@@ -47,7 +47,7 @@ export function ChatSidebar({
   onOpenFeaturesDialog,
   onOpenAboutDialog,
   onOpenContactDialog,
-  isLoading, // Added isLoading prop
+  isLoading,
 }: ChatSidebarProps) {
 
   const sidebarContent = (
@@ -107,6 +107,9 @@ export function ChatSidebar({
       <div className="mt-auto p-3 border-t space-y-1.5">
         <DropdownMenuSeparator className="my-1" /> 
         <p className="text-xs text-muted-foreground px-2 pt-1">Options</p>
+        <Button variant="ghost" className="w-full justify-start text-sm" onClick={() => { router.push('/profile'); setIsMobileMenuOpen(false); }}>
+          <UserIcon className="mr-2 h-4 w-4" /> Profil
+        </Button>
         <Button variant="ghost" className="w-full justify-start text-sm" onClick={onOpenMemoryDialog}>
           <Brain className="mr-2 h-4 w-4" /> Panneau de Mémoire
         </Button>
@@ -131,6 +134,9 @@ export function ChatSidebar({
       </div>
     </div>
   );
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const router = require('next/navigation').useRouter(); // Temporary workaround for router in sidebar
 
   return (
     <>

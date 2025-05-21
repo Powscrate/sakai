@@ -10,9 +10,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
 import { SakaiLogo } from '@/components/icons/logo';
+import { GoogleIcon } from '@/components/icons/google-icon';
 import { Eye, EyeOff } from 'lucide-react';
-import { auth } from '@/lib/firebase'; // Import Firebase auth instance
-import { signInWithEmailAndPassword, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { auth, googleProvider } from '@/lib/firebase'; 
+import { signInWithEmailAndPassword, onAuthStateChanged, signInWithPopup, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
 
 export default function LoginPage() {
@@ -21,6 +22,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
@@ -28,11 +30,11 @@ export default function LoginPage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        router.push('/'); // Redirect if already logged in
+        router.push('/'); 
       }
       setCheckingAuth(false);
     });
-    return () => unsubscribe(); // Cleanup subscription on unmount
+    return () => unsubscribe(); 
   }, [router]);
 
 
@@ -71,6 +73,31 @@ export default function LoginPage() {
       toast({ title: "Erreur de connexion", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      toast({ title: "Connexion Google réussie !", description: `Bienvenue, ${user.displayName || user.email} !`});
+      router.push('/');
+    } catch (error) {
+      console.error("Google sign-in error:", error);
+      let errorMessage = "Erreur de connexion avec Google.";
+      if (error instanceof FirebaseError) {
+        if (error.code === 'auth/popup-closed-by-user') {
+          errorMessage = "La fenêtre de connexion Google a été fermée.";
+        } else if (error.code === 'auth/account-exists-with-different-credential') {
+          errorMessage = "Un compte existe déjà avec cet email mais avec une méthode de connexion différente.";
+        } else {
+          errorMessage = "Erreur Google: " + error.message;
+        }
+      }
+      toast({ title: "Erreur de connexion Google", description: errorMessage, variant: "destructive" });
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
   
@@ -129,10 +156,22 @@ export default function LoginPage() {
                 </Button>
               </div>
             </div>
-            <Button type="submit" className="w-full text-lg py-3" disabled={isLoading}>
+            <Button type="submit" className="w-full text-lg py-3" disabled={isLoading || isGoogleLoading}>
               {isLoading ? 'Connexion en cours...' : 'Se connecter'}
             </Button>
           </form>
+          <div className="my-4 flex items-center before:flex-1 before:border-t before:border-border after:flex-1 after:border-t after:border-border">
+            <p className="mx-4 text-center text-sm text-muted-foreground">OU</p>
+          </div>
+          <Button variant="outline" className="w-full text-lg py-3" onClick={handleGoogleSignIn} disabled={isLoading || isGoogleLoading}>
+            {isGoogleLoading ? (
+              'Connexion Google en cours...'
+            ) : (
+              <>
+                <GoogleIcon className="mr-2 h-5 w-5" /> Se connecter avec Google
+              </>
+            )}
+          </Button>
         </CardContent>
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
