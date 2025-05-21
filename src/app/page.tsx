@@ -10,7 +10,7 @@ import useLocalStorage from '@/hooks/use-local-storage';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
 import { Loader2, Brain, SlidersHorizontal, Info, AlertTriangle, CheckCircle, Zap, Contact, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from "@/components/ui/input"; // Added missing Input import
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +35,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from '@/hooks/use-toast';
 
+const CURRENT_USER_KEY = 'sakaiSimulatedUser';
+const CHAT_SESSIONS_KEY = 'sakaiChatSessions_v2';
+const ACTIVE_CHAT_ID_KEY = 'sakaiActiveChatId_v2';
 
 export interface ChatSession {
   id: string;
@@ -56,9 +59,9 @@ export default function ChatPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [user, setUser] = useLocalStorage<User | null>('sakaiSimulatedUser', null);
-  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>('sakaiChatSessions_v2', []);
-  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>('sakaiActiveChatId_v2', null);
+  const [user, setUser] = useLocalStorage<User | null>(CURRENT_USER_KEY, null);
+  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(CHAT_SESSIONS_KEY, []);
+  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(ACTIVE_CHAT_ID_KEY, null);
 
   const [userMemory, setUserMemory] = useLocalStorage<string>('sakaiUserMemory', '');
   const [isMemoryDialogOpen, setIsMemoryDialogOpen] = useState(false);
@@ -91,6 +94,7 @@ export default function ChatPage() {
   }, [devOverrideSystemPrompt, devModelTemperature, pageIsMounted]);
 
   const handleNewChat = useCallback(() => {
+    if (!user) return; // Do not create new chat if no user
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
       id: newChatId,
@@ -100,8 +104,8 @@ export default function ChatPage() {
     };
     setChatSessions(prevSessions => [newChatSession, ...prevSessions]);
     setActiveChatId(newChatId);
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false); // Close mobile menu on new chat
-  }, [setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
+    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+  }, [user, setChatSessions, setActiveChatId, isMobileMenuOpen, setIsMobileMenuOpen]);
 
   useEffect(() => {
     if (!pageIsMounted) return;
@@ -112,16 +116,17 @@ export default function ChatPage() {
       if (chatSessions.length === 0) {
         handleNewChat();
       } else if (!activeChatId || !chatSessions.find(cs => cs.id === activeChatId)) {
-        setActiveChatId(chatSessions[0]?.id || null); // Fallback to null if chatSessions[0] is undefined
-        if (!chatSessions.find(cs => cs.id === activeChatId) && chatSessions.length > 0) {
-            // If after attempting to set, activeChatId is still invalid but there are sessions, set to first
-             setActiveChatId(chatSessions[0].id);
-        } else if (chatSessions.length === 0) { // Double check if it became empty
+         const firstValidSession = chatSessions.length > 0 ? chatSessions[0].id : null;
+         if (firstValidSession) {
+            setActiveChatId(firstValidSession);
+         } else {
+            // This case implies chatSessions became empty after user was validated, should be rare.
             handleNewChat();
-        }
+         }
       }
     }
   }, [pageIsMounted, user, router, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
+
 
   const activeChatMessages = chatSessions.find(cs => cs.id === activeChatId)?.messages || [];
 
@@ -130,7 +135,7 @@ export default function ChatPage() {
       prevSessions.map(session => {
         if (session.id === activeChatId) {
           let newTitle = session.title;
-          if (newTitle === "Nouveau Chat" && updatedMessages.length > 0) {
+          if ((newTitle === "Nouveau Chat" || newTitle === "Nouvelle Discussion") && updatedMessages.length > 0) {
             const firstUserMessage = updatedMessages.find(m => m.role === 'user' && m.parts[0]?.type === 'text');
             if (firstUserMessage && firstUserMessage.parts[0].type === 'text') {
               newTitle = firstUserMessage.parts[0].text.substring(0, 30) + (firstUserMessage.parts[0].text.length > 30 ? '...' : '');
@@ -150,8 +155,8 @@ export default function ChatPage() {
         if (newSessions.length > 0) {
           setActiveChatId(newSessions[0].id);
         } else {
-          // No active chat to set, handleNewChat will be triggered by useEffect
           setActiveChatId(null); 
+          // handleNewChat will be triggered by useEffect if user is still logged in
         }
       }
       return newSessions;
@@ -160,10 +165,11 @@ export default function ChatPage() {
   };
   
   const handleLogout = () => {
-    setUser(null); 
-    setChatSessions([]);
-    setActiveChatId(null);
-    // useEffect will handle redirection to login page
+    setUser(null); // Clears current user from localStorage via useLocalStorage hook
+    setChatSessions([]); // Clear chat sessions for the logged out user
+    setActiveChatId(null); // Clear active chat id
+    // The useEffect above will detect user is null and redirect to /auth/login
+    toast({ title: "Déconnexion", description: "Vous avez été déconnecté."});
   };
 
   const handleSaveMemory = (newMemory: string) => {
@@ -209,18 +215,18 @@ export default function ChatPage() {
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setDevOverrideSystemPrompt('');
-    setDevModelTemperature(undefined); // Use undefined for localStorage removal
+    setDevModelTemperature(undefined); 
     toast({
       title: "Paramètres développeur réinitialisés",
       description: "Les paramètres par défaut sont restaurés.",
     });
   };
 
-  if (!pageIsMounted || !user) { 
+  if (!pageIsMounted || (!user && router.pathname !== '/auth/login' && router.pathname !== '/auth/signup')) { 
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">{!pageIsMounted ? "Initialisation..." : "Chargement de Sakai..."}</p>
+        <p className="mt-4 text-muted-foreground">Chargement de Sakai...</p>
       </div>
     );
   }
@@ -258,7 +264,7 @@ export default function ChatPage() {
           />
         ) : (
            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <p>Sélectionnez un chat ou commencez une nouvelle conversation.</p>
+            {chatSessions.length > 0 ? <p>Sélectionnez un chat pour continuer.</p> : <p>Cliquez sur "Nouveau Chat" pour commencer.</p>}
           </div>
         )}
       </main>
@@ -300,9 +306,9 @@ export default function ChatPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle>
             <AlertDialogDescription className="text-left">
-              <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique entraîné par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
+              <p className="mb-2">Sakai est votre assistant IA personnel, un grand modèle linguistique codé par Tantely, développé avec passion pour être intelligent, convivial et utile au quotidien.</p>
               <p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle (via Genkit et les modèles Gemini de Google) pour vous offrir une expérience interactive et enrichissante.</p>
-              <p>Version: 1.8.0 (Intégration Menu Fonctionnalités)</p>
+              <p>Version: 1.8.0 (Authentification & Personnalisation)</p>
               <p className="mt-4 text-xs text-muted-foreground">
                 © Tous droits réservés.<br />
                 Créateur & Développeur : MAMPIONONTIAKO Tantely Etienne Théodore
@@ -374,7 +380,7 @@ export default function ChatPage() {
                     </Label>
                     <Textarea
                         id="dev-system-prompt"
-                        placeholder="Laissez vide pour utiliser l'invite système par défaut de Sakai. Sinon, entrez votre propre invite ici..."
+                        placeholder="Laisse vide pour utiliser l'invite système par défaut de Sakai. Sinon, entre ton propre délire ici..."
                         value={tempOverrideSystemPrompt}
                         onChange={(e) => setTempOverrideSystemPrompt(e.target.value)}
                         className="min-h-[150px] text-sm p-3 rounded-md border bg-background"
@@ -398,13 +404,13 @@ export default function ChatPage() {
                         className="w-full"
                     />
                     <p className="text-xs text-muted-foreground">
-                        Plus bas = plus déterministe/factuel. Plus haut = plus créatif/aléatoire. (Défaut: 0.7)
+                        Plus bas = plus factuel/carré. Plus haut = plus créatif/part en freestyle. (Défaut: 0.7)
                     </p>
                 </div>
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
                 <Button type="button" variant="outline" onClick={handleResetDevSettings}>
-                    Réinitialiser par Défaut
+                    Reset aux réglages d'usine
                 </Button>
                 <DialogClose asChild>
                     <Button type="button" variant="ghost" onClick={()=> {
@@ -418,7 +424,7 @@ export default function ChatPage() {
                     </Button>
                 </DialogClose>
                 <Button type="button" onClick={handleSaveDevSettings}>
-                    Sauvegarder les Paramètres
+                    Sauvegarder les Réglages
                 </Button>
             </DialogFooter>
         </DialogContent>

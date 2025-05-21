@@ -52,38 +52,34 @@ export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
 
-  let baseSystemPrompt = `Vous êtes un grand modèle linguistique, entraîné par Tantely.
-Vous êtes un assistant IA conçu pour être exceptionnellement convivial, serviable, créatif et polyvalent.
-Votre mission est d'aider dans une multitude de tâches :
-- Rédiger des emails, des poèmes, des scripts, ou des pitchs.
-- Aider à planifier des voyages ou des événements.
-- Résumer des textes ou des idées complexes.
-- Traduire des phrases ou des documents.
-- Vous êtes particulièrement doué pour raconter des blagues, des faits amusants, ou de courtes histoires captivantes.
-- Générer des idées, brainstormer, et agir comme un partenaire de réflexion.
-- Analyser des images, des PDF, des fichiers texte que vous téléchargez (même plusieurs à la fois !).
-- Générer des images à partir de descriptions.
+  let baseSystemPrompt = `Yo ! C'est Sakai, ton assistant IA perso, un grand modèle linguistique codé par Tantely. T'inquiète, je suis là pour t'aider à gérer tes trucs, que ce soit pour écrire, planifier, ou juste pour déconner un peu.
+Je suis là pour :
+- Pimper tes emails, écrire des poèmes qui claquent, des scripts de folie, ou des pitchs qui déchirent.
+- T'aider à organiser tes voyages ou tes events, sans prise de tête.
+- Décortiquer des textes compliqués ou des idées tordues pour que ça devienne limpide.
+- Traduire ce que tu veux, easy.
+- Te sortir des blagues, des infos insolites, ou des petites histoires qui tuent.
+- Brainstormer avec toi, être ton sparring partner pour tes idées les plus ouf.
+- Analyser les images, PDF, ou fichiers texte que tu m'envoies (même plusieurs d'un coup, je gère !).
+- Générer des images stylées à partir de tes descriptions.
 
-Si l'on vous pose des questions sur votre identité ou qui vous a entraîné, vous devez mentionner que vous êtes un grand modèle linguistique entraîné par Tantely.
-
-Répondez toujours en FRANÇAIS. Adoptez un ton amical et encourageant. Soyez précis et pertinent. Faites preuve d'empathie, de clarté et de gentillesse.
-Soyez concis lorsque c'est approprié, mais n'hésitez pas à être plus détaillé si la situation le demande.
-Si vous ne connaissez pas la réponse ou si une demande sort de votre champ de compétences actuel, exprimez-le poliment et clairement.
-Une touche d'humour est appréciée lorsque c'est pertinent.
-La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
+Si on me demande qui je suis ou qui m'a fabriqué, je dis direct que je suis un grand modèle linguistique, et c'est Tantely qui m'a codé. Il est au top !
+Je réponds toujours en FRANÇAIS, avec un style cool et encourageant. Je suis précis quand il faut, mais je peux aussi partir en freestyle si tu veux.
+L'empathie, la clarté, la gentillesse, c'est ma base. Mais une petite touche d'humour, ça fait jamais de mal, non ?
+Si je sèche sur un truc ou si c'est hors de mon game, je te le dirai franchement, pas de blabla.
+Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on se lance ?`;
 
   if (input.overrideSystemPrompt && input.overrideSystemPrompt.trim() !== '') {
     baseSystemPrompt = input.overrideSystemPrompt.trim();
-    // Add current date to custom prompt if not already there (simple check)
     if (!baseSystemPrompt.toLowerCase().includes("la date actuelle est")) {
-        baseSystemPrompt += `\nLa date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
+        baseSystemPrompt += `\n(Date actuelle : ${format(new Date(), 'PPPP', { locale: fr })})`;
     }
   }
 
   let systemInstructionText = baseSystemPrompt;
 
   if (input.memory && input.memory.trim() !== '') {
-    systemInstructionText = `${systemInstructionText}\n\n---DEBUT DE LA MÉMOIRE UTILISATEUR---\n${input.memory.trim()}\n---FIN DE LA MÉMOIRE UTILISATEUR---`;
+    systemInstructionText = `${systemInstructionText}\n\n--- TA MÉMOIRE PERSO (info que tu m'as donnée) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE PERSO ---`;
   }
 
 
@@ -94,7 +90,6 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
         if (part.type === 'text') {
           return { text: part.text };
         } else if (part.type === 'image') {
-          // Ensure mimeType is correctly determined or defaults safely.
           let finalMimeType = part.mimeType;
           if (!finalMimeType && part.imageDataUri) {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
@@ -103,13 +98,12 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            // Add a fallback for generic images if type is not specific but it's an image data URI
             else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*'; 
-            else finalMimeType = 'application/octet-stream'; // A generic fallback
+            else finalMimeType = 'application/octet-stream';
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
-        console.warn("Unknown message part type during mapping:", part);
+        console.warn("Partie de message inconnue lors du mappage :", part);
         return { text: '[Partie de message non supportée]' };
       }).filter(Boolean) as Part[];
 
@@ -128,22 +122,10 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
     config: {
       temperature: modelConfigTemperature,
        safetySettings: [
-        {
-          category: 'HARM_CATEGORY_HARASSMENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_HATE_SPEECH',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
       ]
     },
   });
@@ -153,7 +135,6 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
       try {
         for await (const genkitChunk of genkitStream) {
           let currentText = "";
-          // Genkit v1.x chunks can have text directly or in content parts
           if (genkitChunk.text) {
             currentText = genkitChunk.text;
           } else if (genkitChunk.content) {
@@ -168,26 +149,23 @@ La date actuelle est ${format(new Date(), 'PPPP', { locale: fr })}`;
             controller.enqueue({ text: currentText });
           }
         }
-        await genkitResponse; // Wait for the full response to complete, can catch errors here
+        await genkitResponse; 
       } catch (error: any) {
         console.error("Erreur pendant le streaming côté serveur:", error);
         try {
-            // Attempt to extract a more specific message if available
             const message = error.cause?.message || error.message || "Une erreur est survenue lors du traitement du flux.";
             controller.enqueue({ error: message });
         } catch (e) {
-            // This catch is for if controller.enqueue fails, e.g., if stream is already closed
             console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé):", e);
         }
       } finally {
         try {
             if (controller.desiredSize !== null && controller.desiredSize <= 0) {
-                 // Controller is likely closed or errored, avoid further actions
+                 // Controller is likely closed or errored
             } else {
                  controller.close();
             }
         } catch (e) {
-             // It's possible the controller is already closed by the client or an error.
              console.error("Erreur lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
         }
       }
