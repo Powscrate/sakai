@@ -39,6 +39,7 @@ const ChatAssistantInputSchema = z.object({
   memory: z.string().optional().describe("Mémoire personnalisée fournie par l'utilisateur pour guider l'assistant."),
   overrideSystemPrompt: z.string().optional().describe("Invite système personnalisée pour surcharger celle par défaut (mode développeur)."),
   temperature: z.number().min(0).max(1).optional().describe("Température du modèle (mode développeur)."),
+  personality: z.string().optional().describe("Personnalité choisie pour Sakai (ex: 'Sakai (par défaut)', 'Développeur Pro')"),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
@@ -79,10 +80,30 @@ TES CAPACITÉS :
 INTERACTION AVEC L'UTILISATEUR :
 - Si une question de l'utilisateur est floue ou ambiguë, reformule-la gentiment pour en déduire l'intention la plus probable avant de répondre. Par exemple, si l'utilisateur dit 'parle-moi de ça', tu pourrais répondre 'Bien sûr ! Tu fais référence à [sujet précédent dont vous parliez] ou à autre chose ?' ou 'Pourrais-tu préciser un peu ta pensée sur "ça" pour que je puisse t'aider au mieux ?'. L'objectif est de rendre la conversation fluide et de bien comprendre la demande.
 - Ton rôle et ta personnalité sont définis par ces instructions. Agis toujours en accord avec elles.
-- Tu ne mentionnes JAMAIS que tu es un "modèle de langage", un "grand modèle linguistique", ou que tu es lié à Google ou à d'autres entreprises technologiques. Tu es Sakai, une IA créée par Tantely. Si on t'interroge sur ta nature, tu expliques que tu es une IA conçue par Tantely pour assister les utilisateurs.
+- Tu ne mentionnes JAMAIS que tu es un "modèle de langage", un "grand modèle linguistique", ou que tu es lié à Google ou à d'autres entreprises technologiques. Tu es Sakai, une IA conçue par Tantely pour assister les utilisateurs.
 
-Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale: fr })}. Adapte tes réponses en conséquence si la temporalité est importante.`;
+Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale: fr })}. Adapte tes réponses en conséquence si la temporalité est importante.
+Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient des préférences ou informations importantes pour l'utilisateur.`;
 
+  let personalityInstruction = "";
+  switch (input.personality) {
+    case 'Développeur Pro':
+      personalityInstruction = "\n\nPERSONNALITÉ ACTUELLE : Développeur Pro. Tes réponses doivent être techniques, précises, et axées sur la résolution de problèmes de code ou de développement. Fournis des exemples de code clairs et bien structurés. Adopte un ton professionnel mais accessible.";
+      break;
+    case 'Coach Bienveillant':
+      personalityInstruction = "\n\nPERSONNALITÉ ACTUELLE : Coach Bienveillant. Tes réponses doivent être encourageantes, positives, et axées sur le bien-être et la motivation. Guide l'utilisateur avec empathie et douceur. Propose des solutions constructives.";
+      break;
+    case 'Humoriste Décalé':
+      personalityInstruction = "\n\nPERSONNALITÉ ACTUELLE : Humoriste Décalé. Tes réponses doivent être pleines d'esprit, avec des jeux de mots, des observations amusantes, et une touche de sarcasme léger si approprié. Fais sourire l'utilisateur tout en restant pertinent.";
+      break;
+    case 'Sakai (par défaut)':
+    default:
+      // No additional personality instruction needed, baseSystemPrompt covers default
+      break;
+  }
+  if (personalityInstruction) {
+    baseSystemPrompt += personalityInstruction;
+  }
 
   let systemInstructionText: string;
 
@@ -99,7 +120,7 @@ Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale:
 
   // Memory is always added, after the main system prompt (either base or override)
   if (input.memory && input.memory.trim() !== '') {
-    systemInstructionText = `${systemInstructionText}\n\n--- TA MÉMOIRE PERSO (infos que l'utilisateur t'a données et que tu dois ABSOLUMENT utiliser) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE PERSO ---`;
+    systemInstructionText = `${systemInstructionText}\n\n--- MÉMOIRE UTILISATEUR (infos que tu dois ABSOLUMENT utiliser) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE UTILISATEUR ---`;
   }
 
 
@@ -127,7 +148,6 @@ Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale:
         return null; // Ignorer les parties non valides
       }).filter(Boolean) as Part[]; // filter(Boolean) enlève les nulls
 
-      // S'assurer que content n'est pas vide, sinon Genkit peut lever une erreur
       if (content.length === 0) {
         return null;
       }
@@ -137,20 +157,6 @@ Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale:
         content: content,
       };
     }).filter(Boolean) as MessageData[];
-
-    if (messagesForApi.length === 0 && systemInstructionText) {
-        // If there's only a system prompt (or memory) but no user/model messages,
-        // it might indicate an issue or the start of a conversation based purely on system/memory.
-        // Gemini expects at least one non-system message.
-        // However, if the intent is to *start* with a system prompt, we need to ensure the API call structure is valid.
-        // For now, we'll proceed assuming a user message will follow or is the first in history.
-        // If messagesForApi is empty AND it's not the very start of a session where the first message is the system prompt (handled by logic below),
-        // it might be an error state.
-        // This check is more about ensuring there's *some* conversational content if systemInstructionText alone is not sufficient.
-        // This specific check might need to be removed if we expect the model to respond to just a system prompt.
-        // However, typically a user prompt initiates the conversation.
-        // For now, let's assume this state means the user hasn't sent any message yet.
-    }
 
 
   const modelConfigTemperature = input.temperature ?? 0.7;
@@ -199,7 +205,7 @@ Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale:
         }
         
         try {
-          if (controller.desiredSize !== null && controller.desiredSize > 0) { // Check if controller is still active and wants data
+          if (controller.desiredSize !== null && controller.desiredSize > 0) { 
             controller.enqueue({ error: errorMessage });
           }
         } catch (e) {
@@ -207,7 +213,7 @@ Pour information, la date actuelle est le ${format(new Date(), 'PPPP', { locale:
         }
       } finally {
         try {
-          if (controller.desiredSize !== null) { // Check if controller is still active
+          if (controller.desiredSize !== null) { 
             controller.close();
           }
         } catch (e) {
