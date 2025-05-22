@@ -9,8 +9,8 @@ import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
 import { generateChatTitle } from '@/ai/flows/generate-chat-title-flow';
-import { generateSakaiThought } from '@/ai/flows/generate-sakai-thought-flow'; // Import new flow
-import { Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2 } from 'lucide-react';
+import { generateSakaiThought } from '@/ai/flows/generate-sakai-thought-flow'; 
+import { Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2, SlidersHorizontal } from 'lucide-react'; // Added SlidersHorizontal
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input"; 
 import {
@@ -35,7 +35,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch"; // Import Switch
+import { Switch } from "@/components/ui/switch"; 
 import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
