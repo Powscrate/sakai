@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
+  Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, 
   Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
   Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio,
-  Image as ImageIconLucide // Aliased for clarity
+  Image as ImageIconLucide 
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -21,16 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -51,7 +41,7 @@ import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-ima
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
-import { ThemeToggleButton } from './theme-toggle-button'; // Added import
+import { ThemeToggleButton } from './theme-toggle-button'; 
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -142,7 +132,7 @@ export function ChatAssistant({
     if (activeChatId) {
         setMessages(initialMessages);
         setInput('');
-        setUploadedFiles([]);
+        setUploadedFiles([]); // Clear uploaded files when chat switches
     }
   }, [activeChatId, initialMessages]);
 
@@ -168,27 +158,31 @@ export function ChatAssistant({
     const files = event.target.files;
     if (files && files.length > 0) {
       const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'text/plain', 'text/markdown'];
+      const newFilesToUpload: UploadedFileWrapper[] = [];
 
       Array.from(files).forEach(file => {
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
-
         let effectiveMimeType = file.type;
-        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream") {
-            if (file.name.toLowerCase().endsWith('.md')) effectiveMimeType = 'text/markdown';
-            else if (file.name.toLowerCase().endsWith('.txt')) effectiveMimeType = 'text/plain';
-            else if (file.name.toLowerCase().endsWith('.pdf')) effectiveMimeType = 'application/pdf';
-            else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => file.name.toLowerCase().endsWith(ext))) {
-                if (file.name.toLowerCase().endsWith('.png')) effectiveMimeType = 'image/png';
-                else if (file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
-                else if (file.name.toLowerCase().endsWith('.webp')) effectiveMimeType = 'image/webp';
-                else effectiveMimeType = 'image/*';
-            } else {
-                effectiveMimeType = 'application/octet-stream';
-            }
-        }
 
+        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream") {
+          if (file.name.toLowerCase().endsWith('.md')) effectiveMimeType = 'text/markdown';
+          else if (file.name.toLowerCase().endsWith('.txt')) effectiveMimeType = 'text/plain';
+          else if (file.name.toLowerCase().endsWith('.pdf')) effectiveMimeType = 'application/pdf';
+          else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => file.name.toLowerCase().endsWith(ext))) {
+            if (file.name.toLowerCase().endsWith('.png')) effectiveMimeType = 'image/png';
+            else if (file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
+            else if (file.name.toLowerCase().endsWith('.webp')) effectiveMimeType = 'image/webp';
+            else effectiveMimeType = 'image/*'; // General image fallback
+          } else {
+            effectiveMimeType = 'application/octet-stream'; // Unknown binary
+          }
+        }
+        
         const isAllowed = allowedTypes.some(type =>
-          effectiveMimeType.startsWith(type.replace('*', ''))
+          effectiveMimeType.startsWith(type.replace('*', '')) || // Covers image/*
+          (type === 'application/pdf' && effectiveMimeType === 'application/pdf') ||
+          (type === 'text/plain' && effectiveMimeType === 'text/plain') ||
+          (type === 'text/markdown' && effectiveMimeType === 'text/markdown')
         );
 
         if (isAllowed) {
@@ -217,14 +211,14 @@ export function ChatAssistant({
         } else {
           toast({
             title: "Type de fichier non supporté",
-            description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Veuillez sélectionner une image (PNG, JPG, WEBP), un PDF, ou un fichier texte (.txt, .md).`,
+            description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Images (PNG, JPG, WEBP), PDF, TXT, et MD sont acceptés.`,
             variant: "destructive",
           });
         }
       });
     }
     if (event.target) {
-        event.target.value = '';
+        event.target.value = ''; // Reset file input
     }
   };
 
@@ -241,7 +235,7 @@ export function ChatAssistant({
 
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
-    setCurrentStreamingMessageId(null);
+    setCurrentStreamingMessageId(null); // Not streaming text for this
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
@@ -261,15 +255,14 @@ export function ChatAssistant({
 
     const updatedLocalMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    onMessagesUpdate([...messages, userPromptMessage]);
-
+    onMessagesUpdate([...messages, userPromptMessage]); // Update parent with user message
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: promptText });
       let finalAssistantMessagePart: ChatMessagePart;
 
       if (result.imageUrl) {
-        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' };
+        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }; // Assume PNG for now
       } else {
         const errorMessage = result.error || "La génération d'image a échoué ou l'URL est manquante.";
         toast({
@@ -283,13 +276,12 @@ export function ChatAssistant({
       const finalAssistantMessage: ChatMessage = {
         role: 'model' as 'model',
         parts: [finalAssistantMessagePart],
-        id: imageGenPlaceholderId,
+        id: imageGenPlaceholderId, // Re-use ID to replace placeholder
         createdAt: Date.now(),
       };
 
       setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...messages, userPromptMessage, finalAssistantMessage]);
-
+      onMessagesUpdate([...messages, userPromptMessage, finalAssistantMessage]); // Update parent with final AI message
 
     } catch (error: unknown) {
       console.error("Erreur de génération d'image (client):", error);
@@ -299,17 +291,17 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      let finalMessages = messages.map(msg =>
+      let finalErrorMessages = messages.map(msg =>
             msg.id === imageGenUserMessageId ? userPromptMessage : msg
         );
-        finalMessages = [...finalMessages, {
+        finalErrorMessages = [...finalErrorMessages, {
             role: 'model' as 'model',
             parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-            id: imageGenPlaceholderId,
+            id: imageGenPlaceholderId, // Re-use ID
             createdAt: Date.now(),
         }];
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
-      onMessagesUpdate([...messages, userPromptMessage, finalMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalErrorMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
+      onMessagesUpdate([...messages, userPromptMessage, finalErrorMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
     } finally {
       setIsLoading(false);
     }
@@ -321,16 +313,17 @@ export function ChatAssistant({
     const currentInput = (typeof e === 'string' ? e : input).trim();
     if ((!currentInput && uploadedFiles.length === 0) || isLoading) return;
 
+    // Image generation intent detection
     const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
-    if (uploadedFiles.length === 0) {
+    if (uploadedFiles.length === 0) { // Only if no files are uploaded, to avoid conflict with image analysis
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
-      if (typeof e !== 'string') setInput('');
-      clearAllUploadedFiles();
+      if (typeof e !== 'string') setInput(''); // Clear input field if it was a form submit
+      clearAllUploadedFiles(); // Should be empty anyway
       await handleImageGeneration(currentInput);
       return;
     }
@@ -338,6 +331,7 @@ export function ChatAssistant({
     const newUserMessageParts: ChatMessagePart[] = [];
     uploadedFiles.forEach(fileWrapper => {
       let mimeType = fileWrapper.file.type;
+      // Refined MIME type detection (already present in handleFileUpload, ensuring consistency here)
       if (!mimeType || mimeType === "application/octet-stream") {
         if (fileWrapper.file.name.toLowerCase().endsWith('.md')) mimeType = 'text/markdown';
         else if (fileWrapper.file.name.toLowerCase().endsWith('.txt')) mimeType = 'text/plain';
@@ -345,11 +339,11 @@ export function ChatAssistant({
         else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => fileWrapper.file.name.toLowerCase().endsWith(ext))) {
           mimeType = fileWrapper.file.type || (fileWrapper.file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
         } else {
-          mimeType = 'application/octet-stream';
+          mimeType = 'application/octet-stream'; 
         }
       }
       newUserMessageParts.push({
-        type: 'image', // This type is generic for media; mimeType specifies the actual type
+        type: 'image', // Genkit uses 'image' for generic media with mimeType
         imageDataUri: fileWrapper.dataUri,
         mimeType: mimeType
       });
@@ -363,20 +357,21 @@ export function ChatAssistant({
 
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}`, createdAt: Date.now() };
 
-    if (typeof e !== 'string') setInput('');
+    if (typeof e !== 'string') setInput(''); // Clear input field if it was a form submit
     clearAllUploadedFiles();
 
     setIsLoading(true);
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
 
+    // Placeholder for assistant's response while streaming
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     const updatedLocalMessages = [...messages, newUserMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    onMessagesUpdate([...messages, newUserMessage]);
+    onMessagesUpdate([...messages, newUserMessage]); // Update parent with user message
 
 
-    const historyForApi = [...messages, newUserMessage];
+    const historyForApi = [...messages, newUserMessage]; // Pass current local history to API
 
     try {
       const readableStream = await streamChatAssistant({
@@ -392,7 +387,7 @@ export function ChatAssistant({
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          break;
+          break; 
         }
 
         const chatChunk: ChatStreamChunk = value;
@@ -401,7 +396,7 @@ export function ChatAssistant({
           console.error("Stream error from server:", chatChunk.error);
           accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`;
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
-          break;
+          break; 
         }
 
         if (chatChunk.text) {
@@ -417,15 +412,16 @@ export function ChatAssistant({
         }
       }
 
+      // Final update to parent after stream is complete
       const finalAssistantMessage: ChatMessage = {
         role: 'model',
-        parts: [{type: 'text' as 'text', text: accumulatedText }],
+        parts: [{type: 'text' as 'text', text: accumulatedText }], // Ensure type correctness
         id: assistantMessageId,
-        createdAt: Date.now()
+        createdAt: Date.now() // Use current timestamp for final message
       };
 
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, finalAssistantMessage]);
+      onMessagesUpdate([...historyForApi, finalAssistantMessage]); // Update parent with final AI message
 
 
     } catch (error: any) {
@@ -472,7 +468,7 @@ export function ChatAssistant({
   const handleDownloadImage = (imageDataUri: string) => {
     const link = document.createElement('a');
     link.href = imageDataUri;
-    link.download = `sakai-image-${Date.now()}.png`;
+    link.download = `sakai-image-${Date.now()}.png`; // Generic name
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -587,7 +583,6 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
             } else {
                 flushList();
                 if (line.trim() === '') {
-                     // Add a smaller vertical space for single empty lines between paragraphs
                     if (lineIdx < segmentLines.length - 1 && segmentLines[lineIdx+1]?.trim() !== '' && (elements.length === 0 || (elements.length > 0 && elements[elements.length-1].type === 'p'))) {
                        elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>);
                     }
@@ -601,20 +596,17 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
     };
 
     while ((fileMatch = fileBlockRegex.exec(textBlock)) !== null) {
-        // Process text before the file block
         if (fileMatch.index > lastFileBlockIndex) {
             processSegment(textBlock.substring(lastFileBlockIndex, fileMatch.index));
         }
 
-        // Extract file info and add download button
         const fileName = fileMatch[1].trim();
         const fileContent = fileMatch[2].trim();
         const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex}-${keyIndex++}`;
         let mimeType = 'text/plain';
         if (fileName.endsWith('.md')) mimeType = 'text/markdown';
         else if (fileName.endsWith('.txt')) mimeType = 'text/plain';
-        // Add more mime types if needed
-
+        
         elements.push(
             <div key={fileKey} className="my-2">
                 <Button
@@ -630,7 +622,6 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
         lastFileBlockIndex = fileMatch.index + fileMatch[0].length;
     }
 
-    // Process text after the last file block (or all text if no file blocks)
     if (lastFileBlockIndex < textBlock.length) {
         processSegment(textBlock.substring(lastFileBlockIndex));
     }
@@ -711,7 +702,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
 
       if (isImageFile) {
         return (
-          <div key={uniquePartKey} className={cn("relative group my-2", isUserMessage ? "max-w-[250px] md:max-w-[300px]" : "max-w-[300px] md:max-w-[350px]")}>
+          <div key={uniquePartKey} className={cn("relative group my-2 transition-all hover:shadow-lg", isUserMessage ? "max-w-[250px] md:max-w-[300px]" : "max-w-[300px] md:max-w-[350px]")}>
             <NextImage
               src={part.imageDataUri}
               alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
@@ -736,11 +727,12 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
         );
       } else {
         // Display for non-image files (PDF, TXT, MD)
+        const fileName = (part as any).file?.name || 'Document'; // Access file name if available
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
             <FileText className="h-6 w-6 text-primary shrink-0" />
             <div className="truncate">
-              <p className="font-medium truncate">{part.file?.name || 'Document'}</p> {/* Ensure part.file exists or fallback */}
+              <p className="font-medium truncate" title={fileName}>{fileName}</p>
               <p className="text-xs">{part.mimeType || 'Fichier'}</p>
             </div>
           </div>
@@ -752,7 +744,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
 
 
   return (
-    <Card className="w-full h-full flex flex-col shadow-2xl rounded-lg overflow-hidden bg-card text-card-foreground">
+    <Card className="w-full h-full flex flex-col shadow-2xl rounded-lg overflow-hidden bg-card text-card-foreground"> {/* Removed max-w-2xl */}
       <CardHeader className="shrink-0 border-b p-4 flex flex-row items-center justify-between bg-card">
         <div className="flex items-center gap-3">
           <SakaiLogo className="h-8 w-8 text-primary" />
@@ -802,7 +794,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
                 >
                   {isUser ? <User className="h-7 w-7 shrink-0 text-muted-foreground/80 mb-1.5 rounded-full bg-muted p-1" /> : <SakaiLogo className="h-7 w-7 shrink-0 text-primary mb-1.5 rounded-full bg-primary/10 p-0.5" />}
                   <div className={cn(
-                     "p-3.5 rounded-xl shadow-md transition-all duration-200 ease-out",
+                     "p-3.5 rounded-xl shadow-md transition-all duration-200 ease-out hover:shadow-lg",
                      isUser
                        ? 'bg-primary text-primary-foreground rounded-br-none'
                        : 'bg-card border text-card-foreground rounded-bl-none',
@@ -946,3 +938,4 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
   </Card>
   );
 }
+
