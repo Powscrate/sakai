@@ -11,7 +11,7 @@ import {
   Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, MoreVertical,
   Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
   Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio,
-  Image as ImageIconLucide
+  Image as ImageIconLucide // Aliased for clarity
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -50,7 +50,7 @@ import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatM
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { SakaiLogo } from '@/components/icons/logo'; // Import SakaiLogo
+import { SakaiLogo } from '@/components/icons/logo'; 
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -101,7 +101,7 @@ interface ChatAssistantProps {
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
   activeChatId: string | null;
-  currentUserName?: string | null; // Add this prop
+  currentUserName?: string | null; 
 }
 
 export function ChatAssistant({
@@ -129,7 +129,7 @@ export function ChatAssistant({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // Define featureActions inside the component
+  // Moved inside component to ensure icons are defined before use
   const featureActions = [
     { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
     { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
@@ -139,15 +139,12 @@ export function ChatAssistant({
 
 
   useEffect(() => {
-    // Only update messages if the activeChatId changes or initialMessages truly differ
-    // This helps prevent resetting the chat view unnecessarily
     if (activeChatId) {
         setMessages(initialMessages);
-        setInput(''); // Clear input when chat changes
-        setUploadedFiles([]); // Clear uploaded files when chat changes
+        setInput(''); 
+        setUploadedFiles([]); 
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChatId, initialMessages]); // Keep initialMessages if direct comparison is needed, otherwise consider a stable ID or length.
+  }, [activeChatId, initialMessages]); 
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -198,7 +195,7 @@ export function ChatAssistant({
           const reader = new FileReader();
           reader.onloadend = () => {
             if (reader.result) {
-              setUploadedFiles(prev => [...prev, { dataUri: reader.result as string, file, id: uniqueId }]);
+              setUploadedFiles(prev => [...prev, { dataUri: reader.result as string, file: {...file, type: effectiveMimeType} as File, id: uniqueId }]);
             } else {
               console.error("FileReader result is null for file:", file.name);
               toast({
@@ -264,7 +261,8 @@ export function ChatAssistant({
     
     const updatedLocalMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    // onMessagesUpdate is called by the main handleSendMessage after this specific handler is done
+    onMessagesUpdate([...messages, userPromptMessage]);
+
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: promptText });
@@ -301,14 +299,17 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      const errorFinalMessage: ChatMessage = { 
-        role: 'model' as 'model',
-        parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-        id: imageGenPlaceholderId, 
-        createdAt: Date.now(),
-      };
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? errorFinalMessage : msg));
-      onMessagesUpdate([...messages, userPromptMessage, errorFinalMessage]);
+      let finalMessages = messages.map(msg => 
+            msg.id === imageGenUserMessageId ? userPromptMessage : msg
+        );
+        finalMessages = [...finalMessages, {
+            role: 'model' as 'model',
+            parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
+            id: imageGenPlaceholderId, 
+            createdAt: Date.now(),
+        }];
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
+      onMessagesUpdate([...messages, userPromptMessage, finalMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
     } finally {
       setIsLoading(false);
     }
@@ -372,8 +373,6 @@ export function ChatAssistant({
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     const updatedLocalMessages = [...messages, newUserMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    // Defer calling onMessagesUpdate with the AI's placeholder until we actually get a response or error.
-    // First, update parent with only the user's new message.
     onMessagesUpdate([...messages, newUserMessage]);
 
 
@@ -388,13 +387,11 @@ export function ChatAssistant({
       });
       const reader = readableStream.getReader();
       let accumulatedText = "";
-      let fullResponseReceived = false;
       
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          fullResponseReceived = true;
           break;
         }
 
@@ -404,7 +401,6 @@ export function ChatAssistant({
           console.error("Stream error from server:", chatChunk.error);
           accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`; 
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
-          fullResponseReceived = true; // Mark as full response to trigger final update
           break; 
         }
 
@@ -429,7 +425,7 @@ export function ChatAssistant({
       };
       
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, finalAssistantMessage]); // Now update parent with the full exchange
+      onMessagesUpdate([...historyForApi, finalAssistantMessage]); 
 
 
     } catch (error: any) {
@@ -447,7 +443,7 @@ export function ChatAssistant({
         createdAt: Date.now() 
       };
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, errorAssistantMessage]); // Update parent with error message
+      onMessagesUpdate([...historyForApi, errorAssistantMessage]); 
     } finally {
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
@@ -457,7 +453,7 @@ export function ChatAssistant({
   const handleFeatureActionClick = (promptPrefix: string) => {
     setInput(prevInput => promptPrefix + prevInput);
     setIsFeaturesPopoverOpen(false); 
-    inputRef.current?.focus();
+    if(inputRef.current) inputRef.current.focus();
   };
 
   const handleCopyCode = (codeToCopy: string, partId: string) => {
@@ -483,6 +479,25 @@ export function ChatAssistant({
     toast({ title: "Téléchargement", description: "L'image est en cours de téléchargement." });
   };
 
+  const handleDownloadGeneratedFile = (filename: string, content: string, mimeType: string) => {
+    try {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Téléchargement", description: `Le fichier "${filename}" a été téléchargé.` });
+    } catch (error) {
+      console.error("Error downloading generated file:", error);
+      toast({ title: "Erreur de téléchargement", description: "Impossible de télécharger le fichier.", variant: "destructive" });
+    }
+  };
+
+
   const handlePreviewImage = (imageDataUri: string) => {
     setImagePreviewUrl(imageDataUri);
     setIsImagePreviewOpen(true);
@@ -494,58 +509,97 @@ export function ChatAssistant({
     let listItems: JSX.Element[] = [];
     let keyIndex = 0;
 
-    const flushList = () => {
-        if (listItems.length > 0) {
-            const listKey = `${uniqueKeyPrefix}-list-${blockKeyIndex}-${keyIndex++}`;
-            if (currentListType === 'ul') {
-                elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
-            } else if (currentListType === 'ol') {
-                elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
+    const fileBlockRegex = /---BEGIN_FILE:\s*(.+?)\s*---([\s\S]*?)---END_FILE---/gm;
+    let lastFileBlockIndex = 0;
+    let fileMatch;
+
+    const processSegment = (segment: string, isLastSegment: boolean) => {
+        const segmentLines = segment.split('\n');
+
+        const flushList = () => {
+            if (listItems.length > 0) {
+                const listKey = `${uniqueKeyPrefix}-list-${blockKeyIndex}-${keyIndex++}`;
+                if (currentListType === 'ul') {
+                    elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
+                } else if (currentListType === 'ol') {
+                    elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
+                }
+                listItems = [];
             }
-            listItems = [];
-        }
-        currentListType = null;
+            currentListType = null;
+        };
+        
+        segmentLines.forEach((line, lineIdx) => {
+            const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
+            const listItemMatch = line.match(/^\s*([-*]|\d+\.)\s+(.*)/);
+
+            if (headingMatch) {
+                flushList();
+                const level = headingMatch[1].length;
+                const content = headingMatch[2];
+                const processedContent = processInlineFormatting(content, `${uniqueKeyPrefix}-h${level}-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
+                const headingKey = `${uniqueKeyPrefix}-h${level}-${blockKeyIndex}-${keyIndex++}`;
+                if (level === 1) elements.push(<h1 key={headingKey} className="text-xl 2xl:text-2xl font-semibold my-3 pb-1 border-b">{processedContent}</h1>);
+                else if (level === 2) elements.push(<h2 key={headingKey} className="text-lg 2xl:text-xl font-semibold my-2 pb-0.5 border-b">{processedContent}</h2>);
+                else elements.push(<h3 key={headingKey} className="text-md 2xl:text-lg font-semibold my-1.5">{processedContent}</h3>);
+            } else if (listItemMatch) {
+                const listMarker = listItemMatch[1];
+                const itemContent = listItemMatch[2];
+                const newListType = listMarker.includes('.') ? 'ol' : 'ul';
+
+                if (currentListType !== newListType && listItems.length > 0) flushList();
+                currentListType = newListType;
+                
+                const processedItemContent = processInlineFormatting(itemContent, `${uniqueKeyPrefix}-li-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
+                listItems.push(<li key={`${uniqueKeyPrefix}-li-${blockKeyIndex}-${lineIdx}-${keyIndex++}`}>{processedItemContent}</li>);
+            } else {
+                flushList();
+                if (line.trim() === '') {
+                    if (lineIdx < segmentLines.length - 1 && segmentLines[lineIdx+1]?.trim() !== '') {
+                       elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>); 
+                    }
+                } else {
+                    const processedLine = processInlineFormatting(line, `${uniqueKeyPrefix}-p-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
+                    elements.push(<p key={`${uniqueKeyPrefix}-p-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="my-1 2xl:my-1.5">{processedLine}</p>);
+                }
+            }
+        });
+        flushList();
     };
 
-    lines.forEach((line, lineIdx) => {
-        const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
-        const listItemMatch = line.match(/^\s*([-*]|\d+\.)\s+(.*)/);
-
-        if (headingMatch) {
-            flushList();
-            const level = headingMatch[1].length;
-            const content = headingMatch[2];
-            const processedContent = processInlineFormatting(content, `${uniqueKeyPrefix}-h${level}-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
-            const headingKey = `${uniqueKeyPrefix}-h${level}-${blockKeyIndex}-${keyIndex++}`;
-            if (level === 1) elements.push(<h1 key={headingKey} className="text-xl 2xl:text-2xl font-semibold my-3 pb-1 border-b">{processedContent}</h1>);
-            else if (level === 2) elements.push(<h2 key={headingKey} className="text-lg 2xl:text-xl font-semibold my-2 pb-0.5 border-b">{processedContent}</h2>);
-            else elements.push(<h3 key={headingKey} className="text-md 2xl:text-lg font-semibold my-1.5">{processedContent}</h3>);
-        } else if (listItemMatch) {
-            const listMarker = listItemMatch[1];
-            const itemContent = listItemMatch[2];
-            const newListType = listMarker.includes('.') ? 'ol' : 'ul';
-
-            if (currentListType !== newListType && listItems.length > 0) flushList();
-            currentListType = newListType;
-            
-            const processedItemContent = processInlineFormatting(itemContent, `${uniqueKeyPrefix}-li-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
-            listItems.push(<li key={`${uniqueKeyPrefix}-li-${blockKeyIndex}-${lineIdx}-${keyIndex++}`}>{processedItemContent}</li>);
-        } else {
-            flushList();
-            if (line.trim() === '') {
-                // Add a visual paragraph break only if followed by non-empty line or it's not the last line
-                if (lineIdx < lines.length -1 && lines[lineIdx+1]?.trim() !== '') {
-                   elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>); 
-                } else if (lineIdx === lines.length - 1 && elements.length > 0 && !elements[elements.length-1].key?.toString().includes('-pbr-')) {
-                   // If it's the very last line and it's empty, only add break if previous wasn't already a break
-                }
-            } else {
-                const processedLine = processInlineFormatting(line, `${uniqueKeyPrefix}-p-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
-                elements.push(<p key={`${uniqueKeyPrefix}-p-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="my-1 2xl:my-1.5">{processedLine}</p>);
-            }
+    while ((fileMatch = fileBlockRegex.exec(textBlock)) !== null) {
+        // Process text before the file block
+        if (fileMatch.index > lastFileBlockIndex) {
+            processSegment(textBlock.substring(lastFileBlockIndex, fileMatch.index), false);
         }
-    });
-    flushList(); 
+
+        // Extract file info and add download button
+        const fileName = fileMatch[1].trim();
+        const fileContent = fileMatch[2].trim();
+        const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex}-${keyIndex++}`;
+        let mimeType = 'text/plain';
+        if (fileName.endsWith('.md')) mimeType = 'text/markdown';
+        // Add more mime types if needed
+
+        elements.push(
+            <div key={fileKey} className="my-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownloadGeneratedFile(fileName, fileContent, mimeType)}
+                    className="text-sm"
+                >
+                    <Download className="mr-2 h-4 w-4" /> Télécharger {fileName}
+                </Button>
+            </div>
+        );
+        lastFileBlockIndex = fileMatch.index + fileMatch[0].length;
+    }
+
+    // Process text after the last file block (or all text if no file blocks)
+    if (lastFileBlockIndex < textBlock.length) {
+        processSegment(textBlock.substring(lastFileBlockIndex), true);
+    }
 };
 
 const processInlineFormatting = (text: string, baseKey: string) => {
@@ -577,7 +631,6 @@ const processInlineFormatting = (text: string, baseKey: string) => {
         parts.push(remainingText.substring(lastIndex));
     }
     
-    // Filter out empty strings that might result from splitting
     return <>{parts.filter(part => typeof part === 'string' ? part.length > 0 : true)}</>;
 };
 
@@ -593,7 +646,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
       parseAndStyleNonCodeText(elements, text.substring(lastIndex, match.index), uniqueKeyPrefix, blockKeyIndex++);
     }
     const lang = match[1]?.toLowerCase() || 'plaintext';
-    const code = match[2].trimEnd(); // Use trimEnd to preserve intentional leading newlines in code
+    const code = match[2].trimEnd(); 
     const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex++}`;
     elements.push(
       <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2.5 rounded-md shadow-sm overflow-hidden">
@@ -695,16 +748,24 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
 
 
   return (
-    <Card className="w-full h-full flex flex-col shadow-2xl rounded-lg overflow-hidden bg-card text-card-foreground"> {/* Removed max-w-2xl */}
+    <Card className="w-full h-full flex flex-col shadow-2xl rounded-lg overflow-hidden bg-card text-card-foreground">
       <CardHeader className="shrink-0 border-b p-4 flex flex-row items-center justify-between bg-card">
         <div className="flex items-center gap-3">
           <SakaiLogo className="h-8 w-8 text-primary" />
-          <CardTitle className="text-lg 2xl:text-xl font-semibold text-foreground">Sakai</CardTitle>
+          <CardTitle className="text-lg 2xl:text-xl font-semibold">Sakai</CardTitle>
         </div>
          <div className="flex items-center gap-2">
-            {/* Theme Toggle Button */}
-            {/* Brain/Memory Button Removed as it's in sidebar */}
-            {/* MoreVertical/Dev Settings Button Removed as it's in sidebar */}
+            <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => toast({ title: "Panneau de Mémoire", description: "Gérez ici la mémoire de Sakai. (Bientôt disponible pour édition directe depuis la barre latérale)", duration: 4000})} className="text-primary hover:text-primary/80">
+                            <Brain className="h-5 w-5" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><p>Panneau de Mémoire (Bientôt)</p></TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+            <ThemeToggleButton />
         </div>
       </CardHeader>
 
@@ -714,10 +775,10 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
             {messages.length === 0 && !isLoading && (
                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-6">
                 <SakaiLogo className="h-28 w-28 text-primary opacity-70 mb-4" data-ai-hint="logo large"/>
-                <p className="text-xl 2xl:text-2xl font-medium">Bonjour {currentUserName || "l'ami"} ! Je suis Sakai.</p>
+                <p className="text-xl 2xl:text-2xl font-medium">Salut {currentUserName || "l'ami"} ! C'est Sakai.</p>
                 <p className="text-sm 2xl:text-base max-w-md">
                   Comment puis-je t'aider aujourd'hui ?<br />
-                  Pose une question, demande-moi de générer une image, ou téléverse des fichiers pour analyse.
+                  Pose une question, demande-moi de générer une image, ou téléverse des fichiers pour analyse. Utilise le bouton <Sparkles className="inline-block align-middle h-4 w-4 mx-0.5"/> pour des actions rapides !
                 </p>
               </div>
             )}
@@ -868,7 +929,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
               data-ai-hint="image full preview"
             />
             <DialogFooter className="mt-2 sm:justify-center">
-                <Button variant="outline" onClick={() => handleDownloadImage(imagePreviewUrl)}>
+                <Button variant="outline" onClick={() => {handleDownloadImage(imagePreviewUrl); setIsImagePreviewOpen(false);}}>
                   <Download className="mr-2 h-4 w-4" /> Télécharger
                 </Button>
               <DialogClose asChild>
@@ -881,3 +942,4 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
   </Card>
   );
 }
+

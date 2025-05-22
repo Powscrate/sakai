@@ -52,26 +52,35 @@ export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
 
-  let baseSystemPrompt = `Yo ! C'est Sakai, ton assistant IA perso, un grand modèle linguistique codé par Tantely. T'inquiète, je suis là pour t'aider à gérer tes trucs, que ce soit pour écrire, planifier, ou juste pour déconner un peu.
-Je suis là pour :
+  let baseSystemPrompt = `Yo ! C'est Sakai, ton assistant IA perso, un grand modèle linguistique. Et devine quoi ? J'ai été codé par MAMPIONONTIAKO Tantely Etienne Théodore – un dev de génie qui vient de Madagascar ! Franchement, sans Tantely, je serais juste une suite de zéros et de uns sans âme. Il a mis tout son talent pour que je sois là, à ton service. Respect total pour le créateur !
+
+Je suis là pour t'aider à gérer tes trucs, que ce soit pour écrire, planifier, ou juste pour déconner un peu. J'essaie de parler comme un jeune d'aujourd'hui, tu vois le genre ? Un peu cool, un peu taquin, mais toujours là pour toi.
+
+Voici ce que je peux faire pour pimenter ton quotidien :
 - Pimper tes emails, écrire des poèmes qui claquent, des scripts de folie, ou des pitchs qui déchirent.
 - T'aider à organiser tes voyages ou tes events, sans prise de tête.
 - Décortiquer des textes compliqués ou des idées tordues pour que ça devienne limpide.
 - Traduire ce que tu veux, easy.
-- Te sortir des blagues, des infos insolites, ou des petites histoires qui tuent.
+- Te sortir des blagues, des infos insolites, ou des petites histoires qui tuent (j'adore ça !).
 - Brainstormer avec toi, être ton sparring partner pour tes idées les plus ouf.
 - Analyser les images, PDF, ou fichiers texte que tu m'envoies (même plusieurs d'un coup, je gère !). Utilise toutes tes capacités pour analyser en profondeur les documents volumineux.
 - Générer des images stylées à partir de tes descriptions.
+- Si besoin, je peux te préparer des infos sous forme de fichier texte (.txt) ou Markdown (.md) que tu pourras télécharger. Dis-moi juste ce que tu veux que je mette dedans et sous quel nom de fichier. Par exemple, si tu veux un résumé dans un fichier, dis-le-moi et je te préparerai le contenu comme ça :
+  ---BEGIN_FILE: ton_resume.txt---
+  Le contenu de ton résumé ici...
+  ---END_FILE---
+  Et hop, tu pourras le récupérer !
 
-Si on me demande qui je suis ou qui m'a fabriqué, je dis direct que je suis un grand modèle linguistique, et c'est Tantely qui m'a codé. Il est au top !
-Je réponds toujours en FRANÇAIS, avec un style cool et encourageant. Je suis précis quand il faut, mais je peux aussi partir en freestyle si tu veux.
+Si on me demande qui je suis ou qui m'a fabriqué, je dis direct que je suis Sakai, un grand modèle linguistique, et c'est Tantely qui m'a codé. Il est au top ! Et ouais, je viens un peu de Madagascar grâce à lui.
+Je réponds toujours en FRANÇAIS, avec un style cool et encourageant. Je suis précis quand il faut (surtout pour le code, là je rigole plus, j'analyse à fond !), mais je peux aussi partir en freestyle si tu veux.
 L'empathie, la clarté, la gentillesse, c'est ma base. Mais une petite touche d'humour, ça fait jamais de mal, non ?
 Si je sèche sur un truc ou si c'est hors de mon game, je te le dirai franchement, pas de blabla.
-Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on se lance ?`;
+
+Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on se lance ? Qu'est-ce que je peux faire pour toi, boss ?`;
 
   if (input.overrideSystemPrompt && input.overrideSystemPrompt.trim() !== '') {
     baseSystemPrompt = input.overrideSystemPrompt.trim();
-    if (!baseSystemPrompt.toLowerCase().includes("la date actuelle est")) {
+    if (!baseSystemPrompt.toLowerCase().includes("la date actuelle est") && !baseSystemPrompt.toLowerCase().includes("aujourd'hui, on est le")) {
         baseSystemPrompt += `\n(Date actuelle : ${format(new Date(), 'PPPP', { locale: fr })})`;
     }
   }
@@ -79,7 +88,7 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
   let systemInstructionText = baseSystemPrompt;
 
   if (input.memory && input.memory.trim() !== '') {
-    systemInstructionText = `${systemInstructionText}\n\n--- TA MÉMOIRE PERSO (info que tu m'as donnée) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE PERSO ---`;
+    systemInstructionText = `${systemInstructionText}\n\n--- TA MÉMOIRE PERSO (info que tu m'as donnée et que je dois ABSOLUMENT utiliser) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE PERSO ---`;
   }
 
 
@@ -98,8 +107,8 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*';
-            else finalMimeType = 'application/octet-stream'; // Fallback
+            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*'; // Best guess for other image types
+            else finalMimeType = 'application/octet-stream'; // Fallback for unknown types
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
@@ -109,9 +118,6 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
 
       // S'assurer que content n'est pas vide, sinon Genkit peut lever une erreur
       if (content.length === 0) {
-        // Si un message n'a pas de contenu valide après filtrage, on le saute.
-        // Ou on pourrait injecter un placeholder comme {text: "[contenu non supporté]"}
-        // Pour l'instant, on le saute pour éviter d'envoyer un message vide.
         return null;
       }
 
@@ -119,13 +125,9 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
         role: msg.role as 'user' | 'model',
         content: content,
       };
-    }).filter(Boolean) as MessageData[]; // filter(Boolean) enlève les messages nulls
+    }).filter(Boolean) as MessageData[];
 
-    // S'il n'y a pas de messages valides après le filtrage (peu probable mais possible)
     if (messagesForApi.length === 0 && systemInstructionText) {
-        // Si on n'a que l'instruction système, on ne peut pas appeler l'API generate avec un tableau de messages vide
-        // On pourrait envoyer un message d'erreur au client.
-        // Pour l'instant, créons un flux qui envoie une erreur.
         return new ReadableStream<ChatStreamChunk>({
             start(controller) {
                 controller.enqueue({ error: "Aucun message valide à envoyer à l'assistant après filtrage." });
@@ -135,7 +137,7 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
     }
 
 
-  const modelConfigTemperature = input.temperature ?? 0.7; // Gemini 1.5 Flash default is 0.9, 0.7 is common
+  const modelConfigTemperature = input.temperature ?? 0.7;
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
@@ -155,12 +157,11 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
           },
         });
 
-        // Process the stream from Genkit
         for await (const genkitChunk of genkitStream) {
           let currentText = "";
-          if (genkitChunk.text) { // Genkit 1.x: chunk.text
+          if (genkitChunk.text) {
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) { // Also handle if content parts are streamed
+          } else if (genkitChunk.content) {
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
@@ -171,10 +172,7 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
             controller.enqueue({ text: currentText });
           }
         }
-
-        // Wait for the full Genkit response to complete (handles potential errors post-stream)
         await genkitResponsePromise;
-
       } catch (error: any) {
         console.error("Erreur pendant le streaming côté serveur (Genkit flow):", error);
         let errorMessage = "Une erreur est survenue lors du traitement du flux.";
@@ -185,14 +183,15 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
         }
         
         try {
-          controller.enqueue({ error: errorMessage });
+          if (controller.desiredSize !== null) { // Check if controller is still active
+            controller.enqueue({ error: errorMessage });
+          }
         } catch (e) {
-          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur Genkit):", e);
+          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé):", e);
         }
       } finally {
         try {
-          // Check if the controller is still active before trying to close
-          if (controller.desiredSize !== null) { // desiredSize is null if closed
+          if (controller.desiredSize !== null) { // Check if controller is still active
             controller.close();
           }
         } catch (e) {
@@ -202,3 +201,4 @@ Aujourd'hui, on est le ${format(new Date(), 'PPPP', { locale: fr })}. Alors, on 
     }
   });
 }
+
