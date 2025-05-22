@@ -1,19 +1,14 @@
 import type { Metadata } from 'next';
-import { Geist } from 'next/font/google'; // Geist_Mono no longer explicitly needed if not widely used
+import { GeistSans } from 'geist/font/sans';
 import './globals.css';
-import { AppShell } from '@/components/layout/app-shell';
-import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "next-themes"; // Recommended for dark mode
+// AppShell and Toaster will be rendered by ClientLayoutWrapper, ThemeProvider too.
+import { ClientLayoutWrapper } from '@/components/layout/client-layout-wrapper';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
 
-// const geistMono = Geist_Mono({ // Can be removed if not primary font for code/mono elements
-//   variable: '--font-geist-mono',
-//   subsets: ['latin'],
-// });
+// Initialize GeistSans. The .variable property gives us the CSS variable name.
+// The geist/font package automatically injects the necessary CSS to define this variable
+// when the class (which is the variable name) is applied to an element.
+// Default subsets (like 'latin') are usually included automatically.
 
 export const metadata: Metadata = {
   title: 'Sakai AI Assistant',
@@ -26,19 +21,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" suppressHydrationWarning>
-      <body className={`${geistSans.variable} antialiased`}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <AppShell>
-            {children}
-          </AppShell>
-          <Toaster />
-        </ThemeProvider>
+    <html lang="fr" className={GeistSans.variable} suppressHydrationWarning>
+      <body className="antialiased"> {/* Tailwind's antialiased class */}
+        <ClientLayoutWrapper>
+          {children}
+        </ClientLayoutWrapper>
       </body>
     </html>
   );
