@@ -11,8 +11,8 @@ import {
   Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, 
   Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
   Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio,
-  Image as ImageIconLucide, MoreVertical, ChevronDown
-} from 'lucide-react';
+  Image as ImageIconLucide, MoreVertical, ChevronDown, Brush, Wand2, Edit3
+} from 'lucide-react'; // Added missing icons
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -116,7 +116,7 @@ export function ChatAssistant({
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-
+  
   const featureActions = [
     { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
     { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
@@ -288,17 +288,17 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      let finalErrorMessages = messages.map(msg =>
+      let finalMessages = messages.map(msg => // Changed from const to let
             msg.id === imageGenUserMessageId ? userPromptMessage : msg
         );
-        finalErrorMessages = [...finalErrorMessages, {
+        finalMessages = [...finalMessages, {
             role: 'model' as 'model',
             parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         }];
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalErrorMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
-      onMessagesUpdate([...messages, userPromptMessage, finalErrorMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
+      onMessagesUpdate([...messages, userPromptMessage, finalMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
     } finally {
       setIsLoading(false);
     }
@@ -310,7 +310,13 @@ export function ChatAssistant({
     const currentInput = (typeof e === 'string' ? e : input).trim();
     if ((!currentInput && uploadedFiles.length === 0) || isLoading) return;
 
-    const imageKeywords = ["génère une image de", "dessine-moi", "dessine moi", "crée une image de", "photo de", "image de"];
+    const imageKeywords = [
+      "génère une image de", "génère moi une image de", "génère une image pour",
+      "dessine-moi", "dessine moi", "dessine une image de",
+      "crée une image de", "crée moi une image de",
+      "photo de", "image de", "montre-moi une image de",
+      "fais une image de", "je veux une image de"
+    ];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
 
@@ -319,10 +325,16 @@ export function ChatAssistant({
     }
 
     if (isImageRequestIntent) {
-      const imagePrompt = imageKeywords.reduce((acc, keyword) => acc.replace(new RegExp(`^${keyword}`, 'i'), ''), currentInput).trim();
+      const imagePrompt = imageKeywords.reduce((acc, keyword) => {
+        if (lowerInput.startsWith(keyword)) { // Only replace if it's at the beginning
+          return currentInput.substring(keyword.length).trim();
+        }
+        return acc;
+      }, currentInput);
+      
       if (typeof e !== 'string') setInput('');
       clearAllUploadedFiles(); 
-      await handleImageGeneration(imagePrompt || currentInput); // Fallback to currentInput if stripping keywords results in empty
+      await handleImageGeneration(imagePrompt || currentInput); 
       return;
     }
 
@@ -546,7 +558,7 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
                 if (currentListType === 'ul') {
                     elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
                 } else if (currentListType === 'ol') {
-                    elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
+                    elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
                 }
                 listItems = [];
             }
@@ -747,7 +759,6 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
           <CardTitle className="text-lg 2xl:text-xl font-semibold text-foreground">Sakai</CardTitle>
         </div>
          <div className="flex items-center gap-2">
-            {/* Removed Brain (Memory Panel) button from here, it's in sidebar */}
             <ThemeToggleButton />
         </div>
       </CardHeader>
@@ -902,7 +913,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
           <Button variant="outline" size="icon" type="button" aria-label="Saisie vocale (Bientôt disponible)" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg" disabled>
               <Mic className="h-5 w-5" />
           </Button>
-          <Button type="submit" size="icon" disabled={isLoading && !currentStreamingMessageId || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
+          <Button type="submit" size="icon" disabled={(isLoading && !!currentStreamingMessageId) || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
             {isLoading && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </form>
