@@ -13,7 +13,7 @@ import { SakaiLogo } from '@/components/icons/logo';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
-import { Loader2, ArrowLeft, ImageUp, Link2 } from 'lucide-react';
+import { Loader2, ArrowLeft, ImageUp, Link2, User as UserIcon } from 'lucide-react'; // Added User as UserIcon
 import useLocalStorage from '@/hooks/use-local-storage';
 
 const getUserAvatarKey = (userId: string | undefined) => userId ? `sakaiUserAvatar_${userId}` : 'sakaiUserAvatar_anonymous_fallback';
