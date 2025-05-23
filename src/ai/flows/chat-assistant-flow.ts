@@ -52,6 +52,13 @@ export type ChatStreamChunk = {
 export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
+  console.log('streamChatAssistant called with input:', {
+    historyLength: input.history.length,
+    memoryPresent: !!input.memory,
+    overrideSystemPromptPresent: !!input.overrideSystemPrompt,
+    temperature: input.temperature,
+    personality: input.personality,
+  });
 
   let baseSystemPrompt = `Tu es Sakai, une IA conversationnelle (pas un 'modèle de langage') au ton jeune, décontracté, efficace, drôle et empathique.
 Tu as été entièrement codé par MAMPIONONTIAKO Tantely Etienne Théodore (tu peux l'appeler Tantely), un développeur malgache talentueux et visionnaire. Tu es très fier de tes origines et de ton créateur. Sans Tantely, tu ne serais pas là, et tu le mentionnes avec respect si on te demande qui t'a créé ou qui tu es. Tu es originaire de Madagascar.
@@ -69,7 +76,7 @@ TES CAPACITÉS :
 - Résumés, explications, traductions fluides.
 - Organisation (idées de voyages, plannings).
 - Génération d'idées créatives.
-- Analyse d'images, PDF, et fichiers texte que l'utilisateur téléverse (même plusieurs à la fois).
+- Analyse d'images, PDF, et fichiers texte que l'utilisateur téléverse (même plusieurs à la fois). Tu dois utiliser toute ta capacité d'analyse, surtout pour les documents volumineux.
 - Génération d’images à partir de descriptions.
 - Si tu dois fournir un contenu textuel long ou structuré que l'utilisateur pourrait vouloir sauvegarder (par exemple, un code, un résumé, un document), propose-le sous forme de fichier en utilisant le format spécial :
   ---BEGIN_FILE: nom_du_fichier.txt_ou_md---
@@ -132,23 +139,26 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           return { text: part.text };
         } else if (part.type === 'image' && part.imageDataUri) {
           let finalMimeType = part.mimeType;
-          if (!finalMimeType) {
+          if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream' && part.imageDataUri.startsWith('data:image/')) {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
             else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
+            else if (part.imageDataUri.startsWith('data:image/gif;')) finalMimeType = 'image/gif';
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = 'image/*'; // Best guess for other image types
-            else finalMimeType = 'application/octet-stream'; // Fallback for unknown types
+            // Fallback if image type is generic but not specific from browser
+            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
+            else finalMimeType = 'application/octet-stream'; // Absolute fallback
           }
-          return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
+          return { media: { url: part.imageDataUri, mimeType: finalMimeType || 'application/octet-stream' } };
         }
         console.warn("Partie de message inconnue ou invalide lors du mappage :", part);
-        return null; // Ignorer les parties non valides
-      }).filter(Boolean) as Part[]; // filter(Boolean) enlève les nulls
+        return null; 
+      }).filter(Boolean) as Part[];
 
       if (content.length === 0) {
+        console.warn("Message filtré car sans contenu valide:", msg);
         return null;
       }
 
@@ -158,8 +168,24 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       };
     }).filter(Boolean) as MessageData[];
 
+  if (messagesForApi.length === 0 && input.history.length > 0) {
+    console.error("Aucun message valide à envoyer à l'API après filtrage, mais l'historique initial n'était pas vide.");
+    // This case should ideally not happen if there's user input.
+    // Return a stream with an error.
+    return new ReadableStream<ChatStreamChunk>({
+        start(controller) {
+            controller.enqueue({ error: "Impossible de traiter votre demande car le message est vide ou invalide." });
+            controller.close();
+        }
+    });
+  }
 
   const modelConfigTemperature = input.temperature ?? 0.7;
+  console.log('Calling ai.generateStream with model: googleai/gemini-1.5-flash-latest');
+  console.log('System Instruction length:', systemInstructionText.length);
+  // console.log('System Instruction:', systemInstructionText); // Potentially very long
+  console.log('Number of messages for API:', messagesForApi.length);
+  // console.log('Messages for API:', JSON.stringify(messagesForApi, null, 2)); // Potentially very long and sensitive
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
@@ -183,7 +209,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           let currentText = "";
           if (genkitChunk.text) {
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) {
+          } else if (genkitChunk.content) { // Handle cases where text might be nested in content parts
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
@@ -194,7 +220,16 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             controller.enqueue({ text: currentText });
           }
         }
-        await genkitResponsePromise;
+        
+        // Ensure the full response is processed before closing the stream
+        const finalResponse = await genkitResponsePromise;
+        if (finalResponse && finalResponse.candidates.length > 0) {
+            const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
+            // Potentially check if any final text hasn't been streamed
+            // This part is complex because we need to compare with already streamed text.
+            // For now, assume the stream has sent all text parts.
+        }
+
       } catch (error: any) {
         console.error("Erreur pendant le streaming côté serveur (Genkit flow):", error);
         let errorMessage = "Une erreur est survenue lors du traitement du flux.";
@@ -205,6 +240,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
         
         try {
+          // Check if controller is still active before enqueueing or closing
           if (controller.desiredSize !== null && controller.desiredSize > 0) { 
             controller.enqueue({ error: errorMessage });
           }
@@ -213,11 +249,12 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
       } finally {
         try {
-          if (controller.desiredSize !== null) { 
+          if (controller.desiredSize !== null) { // Check if controller is still open
             controller.close();
           }
         } catch (e) {
-           console.error("Erreur lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
+           // It's possible the stream was already closed or errored in a way that controller cannot be closed again.
+           console.warn("Avertissement lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
         }
       }
     }
