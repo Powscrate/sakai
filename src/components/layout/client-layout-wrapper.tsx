@@ -18,7 +18,7 @@ export function ClientLayoutWrapper({ children }: ClientLayoutWrapperProps) {
   }, []);
 
   if (!isMounted) {
-    return null;
+    return null; // Render nothing on the server and during initial client-side render
   }
 
   return (
