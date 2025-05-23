@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview Flux Genkit pour générer un titre concis pour une session de chat.
@@ -44,7 +45,7 @@ Le titre doit faire au maximum 5 à 7 mots. Réponds uniquement avec le titre. N
 
 Extrait de conversation :
 {{#each messages}}
-{{#if (eq role "user")}}Utilisateur : {{else}}Sakai : {{/if}}
+{{#if isUser}}Utilisateur : {{else}}Sakai : {{/if}}
 {{#each parts}}{{{text}}}{{/each}}
 {{/each}}
 
@@ -59,17 +60,18 @@ const generateChatTitleFlow = ai.defineFlow(
     outputSchema: GenerateChatTitleOutputSchema,
   },
   async (input) => {
-    // Extract text content for cleaner prompt processing if needed
+    // Pre-process messages to add an isUser flag for easier templating
     const messagesForPrompt = input.messages.map(msg => ({
         role: msg.role,
-        parts: msg.parts.filter(part => part.type === 'text').map(part => ({type: 'text', text: part.text}))
+        isUser: msg.role === 'user', // Add isUser flag
+        parts: msg.parts.filter(part => part.type === 'text').map(part => ({type: 'text' as 'text', text: part.text}))
     })).filter(msg => msg.parts.length > 0);
 
     if (messagesForPrompt.length === 0) {
       return { title: "Discussion" }; // Fallback title
     }
 
-    const {output} = await generateChatTitlePrompt({messages: messagesForPrompt});
+    const {output} = await generateChatTitlePrompt({messages: messagesForPrompt as any}); // Pass augmented messages
     return output || { title: "Discussion" };
   }
 );
