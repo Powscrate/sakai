@@ -137,9 +137,8 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       const content: Part[] = msg.parts.map(part => {
         if (part.type === 'text') {
           return { text: part.text };
-        } else if (part.type === 'image' && part.imageDataUri) { // 'image' type also handles PDF/TXT
+        } else if (part.type === 'image' && part.imageDataUri) { 
           let finalMimeType = part.mimeType;
-          // Infer mimeType if not specific enough or missing from browser
           if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream') {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
@@ -148,44 +147,52 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            // Fallback if image type is generic but not specific from browser
             else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
-            else finalMimeType = 'application/octet-stream'; // Absolute fallback, hoping Gemini infers from content
+            else finalMimeType = 'application/octet-stream'; 
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType || 'application/octet-stream' } };
         }
         console.warn("Partie de message inconnue ou invalide lors du mappage :", part);
-        return null; // This will be filtered out by .filter(Boolean)
-      }).filter(Boolean) as Part[]; // Filter out any null parts
+        return null; 
+      }).filter(Boolean) as Part[]; 
 
       if (content.length === 0) {
         console.warn("Message filtré car sans contenu valide:", msg);
-        return null; // This message will be filtered out
+        return null; 
       }
 
       return {
         role: msg.role as 'user' | 'model',
         content: content,
       };
-    }).filter(Boolean) as MessageData[]; // Filter out any null messages
+    }).filter(Boolean) as MessageData[];
 
   if (messagesForApi.length === 0 && input.history.length > 0) {
-    console.error("Aucun message valide à envoyer à l'API après filtrage, mais l'historique initial n'était pas vide. C'est probablement dû à des fichiers invalides ou non supportés.");
-    // Return a stream with an error.
+    const errorMessage = "Impossible de traiter votre demande car le message est vide ou invalide. Veuillez vérifier les fichiers téléversés ou le texte saisi.";
+    console.error(errorMessage);
     return new ReadableStream<ChatStreamChunk>({
         start(controller) {
-            controller.enqueue({ error: "Impossible de traiter votre demande car le message est vide ou invalide. Veuillez vérifier les fichiers téléversés." });
+            controller.enqueue({ error: errorMessage });
+            controller.close();
+        }
+    });
+  }
+  if (messagesForApi.length === 0 && (!input.history || input.history.length === 0)) {
+     const errorMessage = "L'historique des messages est vide. Veuillez envoyer un message.";
+     console.error(errorMessage);
+     return new ReadableStream<ChatStreamChunk>({
+        start(controller) {
+            controller.enqueue({ error: errorMessage });
             controller.close();
         }
     });
   }
 
-  const modelConfigTemperature = input.temperature ?? 0.7; // Default temperature if not provided
+
+  const modelConfigTemperature = input.temperature ?? 0.7; 
   console.log('Calling ai.generateStream with model: googleai/gemini-1.5-flash-latest');
-  console.log('System Instruction length:', systemInstructionText.length);
-  // console.log('System Instruction:', systemInstructionText); // Potentially very long
-  console.log('Number of messages for API:', messagesForApi.length);
-  // console.log('Messages for API:', JSON.stringify(messagesForApi, null, 2)); // Potentially very long and sensitive
+  // console.log('System Instruction length:', systemInstructionText.length); // Potentially very long
+  // console.log('Number of messages for API:', messagesForApi.length); // Potentially sensitive or long
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
@@ -196,7 +203,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           messages: messagesForApi,
           config: {
             temperature: modelConfigTemperature,
-            safetySettings: [ // Standard safety settings
+            safetySettings: [ 
               { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -209,7 +216,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           let currentText = "";
           if (genkitChunk.text) {
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) { // Handle cases where text might be nested in content parts
+          } else if (genkitChunk.content) { 
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
@@ -221,33 +228,26 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           }
         }
         
-        // Ensure the full response is processed before closing the stream
-        // This can help catch errors that occur at the end of generation.
         const finalResponse = await genkitResponsePromise;
         if (finalResponse && finalResponse.candidates.length > 0) {
             const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
-            // Potentially check if any final text hasn't been streamed
-            // or if there's a finishReason indicating an error
             if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
                 console.warn("Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
-                 if (!controller.desiredSize) { // Check if stream is already closed
-                    return;
+                 if (controller.desiredSize !== null && controller.desiredSize > 0) { 
+                    controller.enqueue({ error: `La réponse a été interrompue (${lastCandidate.finishReason}). ${lastCandidate.finishMessage || ''}`.trim() });
                  }
-                controller.enqueue({ error: `La réponse a été interrompue (${lastCandidate.finishReason}). ${lastCandidate.finishMessage || ''}`.trim() });
             }
         }
-
       } catch (error: any) {
         console.error("Erreur pendant le streaming côté serveur (Genkit flow):", error);
         let errorMessage = "Une erreur est survenue lors du traitement du flux.";
         if (error.message) {
             errorMessage = error.message;
-        } else if (error.cause?.message) {
+        } else if (error.cause?.message) { // Check for nested cause
             errorMessage = error.cause.message;
         }
         
         try {
-          // Check if controller is still active before enqueueing or closing
           if (controller.desiredSize !== null && controller.desiredSize > 0) { 
             controller.enqueue({ error: errorMessage });
           }
@@ -256,16 +256,16 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
       } finally {
         try {
-          if (controller.desiredSize !== null) { // Check if controller is still open
+          if (controller.desiredSize !== null) { 
             controller.close();
           }
         } catch (e) {
-           // It's possible the stream was already closed or errored in a way that controller cannot be closed again.
            console.warn("Avertissement lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
         }
       }
     }
   });
 }
-
     
+
+      
