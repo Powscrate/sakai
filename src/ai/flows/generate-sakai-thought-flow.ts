@@ -52,7 +52,14 @@ const generateSakaiThoughtFlow = ai.defineFlow(
     outputSchema: GenerateSakaiThoughtOutputSchema,
   },
   async () => {
-    const {output} = await generateSakaiThoughtPrompt({}); // Passer un objet vide si aucun input n'est défini
-    return output || { thought: "Prêt à explorer les mystères de l'univers... ou juste à trouver un bon mème ?" };
+    const fallbackThought = { thought: "Prêt à explorer les mystères de l'univers... ou juste à trouver un bon mème ?" };
+    try {
+      const {output} = await generateSakaiThoughtPrompt({}); // Passer un objet vide si aucun input n'est défini
+      return output || fallbackThought;
+    } catch (error) {
+      console.error("Error in generateSakaiThoughtFlow while calling prompt:", error);
+      return fallbackThought;
+    }
   }
 );
+
