@@ -19,16 +19,16 @@ import { fr } from 'date-fns/locale';
 const ChatMessagePartSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({
-    type: z.literal('image'),
-    imageDataUri: z.string().describe("L'image sous forme de Data URI (doit inclure le type MIME et l'encodage Base64, ex: 'data:image/png;base64,ENCODED_DATA')."),
-    mimeType: z.string().optional().describe("Le type MIME de l'image, ex: 'image/png' ou 'image/jpeg'.")
+    type: z.literal('image'), // Sert aussi pour PDF, TXT, MD
+    imageDataUri: z.string().describe("Le contenu du fichier (image, PDF, TXT, MD) sous forme de Data URI (doit inclure le type MIME et l'encodage Base64, ex: 'data:image/png;base64,ENCODED_DATA')."),
+    mimeType: z.string().optional().describe("Le type MIME du fichier, ex: 'image/png', 'application/pdf', 'text/plain'.")
   }),
 ]);
 export type ChatMessagePart = z.infer<typeof ChatMessagePartSchema>;
 
 const ChatMessageSchema = z.object({
   role: z.enum(['user', 'model']),
-  parts: z.array(ChatMessagePartSchema).describe("Le contenu du message, peut être un mélange de texte et d'images."),
+  parts: z.array(ChatMessagePartSchema).describe("Le contenu du message, peut être un mélange de texte et de fichiers."),
   id: z.string().optional(),
   createdAt: z.any().optional(), // Can be Firestore Timestamp, Date, or number
 });
@@ -137,9 +137,10 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       const content: Part[] = msg.parts.map(part => {
         if (part.type === 'text') {
           return { text: part.text };
-        } else if (part.type === 'image' && part.imageDataUri) {
+        } else if (part.type === 'image' && part.imageDataUri) { // 'image' type also handles PDF/TXT
           let finalMimeType = part.mimeType;
-          if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream' && part.imageDataUri.startsWith('data:image/')) {
+          // Infer mimeType if not specific enough or missing from browser
+          if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream') {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
             else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
@@ -149,38 +150,37 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
             // Fallback if image type is generic but not specific from browser
             else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
-            else finalMimeType = 'application/octet-stream'; // Absolute fallback
+            else finalMimeType = 'application/octet-stream'; // Absolute fallback, hoping Gemini infers from content
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType || 'application/octet-stream' } };
         }
         console.warn("Partie de message inconnue ou invalide lors du mappage :", part);
-        return null; 
-      }).filter(Boolean) as Part[];
+        return null; // This will be filtered out by .filter(Boolean)
+      }).filter(Boolean) as Part[]; // Filter out any null parts
 
       if (content.length === 0) {
         console.warn("Message filtré car sans contenu valide:", msg);
-        return null;
+        return null; // This message will be filtered out
       }
 
       return {
         role: msg.role as 'user' | 'model',
         content: content,
       };
-    }).filter(Boolean) as MessageData[];
+    }).filter(Boolean) as MessageData[]; // Filter out any null messages
 
   if (messagesForApi.length === 0 && input.history.length > 0) {
-    console.error("Aucun message valide à envoyer à l'API après filtrage, mais l'historique initial n'était pas vide.");
-    // This case should ideally not happen if there's user input.
+    console.error("Aucun message valide à envoyer à l'API après filtrage, mais l'historique initial n'était pas vide. C'est probablement dû à des fichiers invalides ou non supportés.");
     // Return a stream with an error.
     return new ReadableStream<ChatStreamChunk>({
         start(controller) {
-            controller.enqueue({ error: "Impossible de traiter votre demande car le message est vide ou invalide." });
+            controller.enqueue({ error: "Impossible de traiter votre demande car le message est vide ou invalide. Veuillez vérifier les fichiers téléversés." });
             controller.close();
         }
     });
   }
 
-  const modelConfigTemperature = input.temperature ?? 0.7;
+  const modelConfigTemperature = input.temperature ?? 0.7; // Default temperature if not provided
   console.log('Calling ai.generateStream with model: googleai/gemini-1.5-flash-latest');
   console.log('System Instruction length:', systemInstructionText.length);
   // console.log('System Instruction:', systemInstructionText); // Potentially very long
@@ -196,7 +196,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           messages: messagesForApi,
           config: {
             temperature: modelConfigTemperature,
-            safetySettings: [
+            safetySettings: [ // Standard safety settings
               { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -222,12 +222,19 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
         
         // Ensure the full response is processed before closing the stream
+        // This can help catch errors that occur at the end of generation.
         const finalResponse = await genkitResponsePromise;
         if (finalResponse && finalResponse.candidates.length > 0) {
             const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
             // Potentially check if any final text hasn't been streamed
-            // This part is complex because we need to compare with already streamed text.
-            // For now, assume the stream has sent all text parts.
+            // or if there's a finishReason indicating an error
+            if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
+                console.warn("Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
+                 if (!controller.desiredSize) { // Check if stream is already closed
+                    return;
+                 }
+                controller.enqueue({ error: `La réponse a été interrompue (${lastCandidate.finishReason}). ${lastCandidate.finishMessage || ''}`.trim() });
+            }
         }
 
       } catch (error: any) {
@@ -260,3 +267,5 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     }
   });
 }
+
+    
