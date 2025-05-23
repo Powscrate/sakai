@@ -1,18 +1,15 @@
-
 // src/components/chat/chat-assistant.tsx
 "use client";
 
-import React, { useState, useRef, useEffect, FormEvent, ChangeEvent, useCallback, Fragment } from 'react';
+import React, { useState, useRef, useEffect, FormEvent, ChangeEvent, useCallback } from 'react';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
+import { 
   Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check, 
-  Brain, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, MessageSquare,
-  Laugh, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio,
-  Image as ImageIconLucide, MoreVertical, ChevronDown, Brush, Wand2, Edit3
-} from 'lucide-react'; // Added missing icons
+  Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Bot as BotIconLucide
+} from 'lucide-react'; // Added BotIconLucide for consistency if SakaiLogo isn't preferred everywhere
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,8 +18,6 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle,
-  DialogDescription,
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
@@ -37,7 +32,6 @@ import type { AIPersonality } from '@/app/page';
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-// Import only necessary languages to reduce bundle size
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
@@ -80,7 +74,7 @@ interface UploadedFileWrapper {
 
 interface ChatAssistantProps {
   initialMessages?: ChatMessage[];
-  onMessagesUpdate: (messages: ChatMessage[]) => void;
+  onMessagesUpdate: (messages: ChatMessage[], newAssistantMessage?: ChatMessage) => void;
   userMemory: string;
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
@@ -111,7 +105,7 @@ export function ChatAssistant({
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false);
-
+  
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,10 +139,11 @@ export function ChatAssistant({
   useEffect(scrollToBottom, [messages, isLoading, scrollToBottom]);
 
   useEffect(() => {
-    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen) {
+    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen ) {
       inputRef.current.focus();
     }
-  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps  
+  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId]);
 
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -160,18 +155,20 @@ export function ChatAssistant({
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
         let effectiveMimeType = file.type;
 
-        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream") {
+        // Try to infer MIME type for known text-based extensions if browser provides generic one
+        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream" || effectiveMimeType === "") {
           const lowerName = file.name.toLowerCase();
           if (lowerName.endsWith('.md')) effectiveMimeType = 'text/markdown';
           else if (lowerName.endsWith('.txt')) effectiveMimeType = 'text/plain';
           else if (lowerName.endsWith('.pdf')) effectiveMimeType = 'application/pdf';
           else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => lowerName.endsWith(ext))) {
-            if (lowerName.endsWith('.png')) effectiveMimeType = 'image/png';
-            else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
-            else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
-            else effectiveMimeType = 'image/*'; 
+             if (lowerName.endsWith('.png')) effectiveMimeType = 'image/png';
+             else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
+             else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
+             else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif'; // Added GIF
+             else effectiveMimeType = file.type || 'image/*'; // Fallback to browser's type or generic image
           } else {
-            effectiveMimeType = 'application/octet-stream'; 
+            effectiveMimeType = 'application/octet-stream'; // Fallback for unknown types
           }
         }
         
@@ -208,7 +205,7 @@ export function ChatAssistant({
         } else {
           toast({
             title: "Type de fichier non supporté",
-            description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Images (PNG, JPG, WEBP), PDF, TXT, et MD sont acceptés.`,
+            description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Images (PNG, JPG, WEBP, GIF), PDF, TXT, et MD sont acceptés.`,
             variant: "destructive",
           });
         }
@@ -238,24 +235,42 @@ export function ChatAssistant({
 
     const userPromptMessage: ChatMessage = {
       role: 'user',
-      parts: [{ type: 'text', text: `Génère une image de : ${promptText}` }],
+      parts: [{ type: 'text', text: promptText }], // Use the full prompt as detected
       id: imageGenUserMessageId,
       createdAt: Date.now(),
     };
 
     const assistantPlaceholderMessage: ChatMessage = {
       role: 'model',
-      parts: [{ type: 'text', text: `Sakai génère une image pour : "${promptText.substring(0,50)}..."` }],
+      parts: [{ type: 'text', text: `Sakai génère une image pour : "${promptText.substring(0,50).replace(/^Génère une image de/i, '').trim()}..."` }],
       id: imageGenPlaceholderId,
       createdAt: Date.now() + 1,
     };
-
+    
     const updatedLocalMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
     setMessages(updatedLocalMessages);
-    onMessagesUpdate([...messages, userPromptMessage]); 
+    onMessagesUpdate([...messages, userPromptMessage]);
+
 
     try {
-      const result: GenerateImageOutput = await generateImage({ prompt: promptText });
+      // Extract the actual image generation part from the prompt
+      const imageKeywords = [
+        "génère une image de", "génère moi une image de", "génère une image pour",
+        "dessine-moi", "dessine moi", "dessine une image de",
+        "crée une image de", "crée moi une image de", "crée-moi une image de",
+        "photo de", "image de", "montre-moi une image de",
+        "fais une image de", "je veux une image de"
+      ];
+      let coreImagePrompt = promptText;
+      for (const keyword of imageKeywords) {
+        if (promptText.toLowerCase().startsWith(keyword.toLowerCase())) {
+          coreImagePrompt = promptText.substring(keyword.length).trim();
+          break;
+        }
+      }
+
+
+      const result: GenerateImageOutput = await generateImage({ prompt: coreImagePrompt });
       let finalAssistantMessagePart: ChatMessagePart;
 
       if (result.imageUrl) {
@@ -276,9 +291,9 @@ export function ChatAssistant({
         id: imageGenPlaceholderId, 
         createdAt: Date.now(),
       };
-
+      
       setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...messages, userPromptMessage, finalAssistantMessage]); 
+      onMessagesUpdate([...messages, userPromptMessage], finalAssistantMessage);
 
     } catch (error: unknown) {
       console.error("Erreur de génération d'image (client):", error);
@@ -288,17 +303,14 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-      let finalMessages = messages.map(msg => // Changed from const to let
-            msg.id === imageGenUserMessageId ? userPromptMessage : msg
-        );
-        finalMessages = [...finalMessages, {
+        const errorResponseMessage: ChatMessage = {
             role: 'model' as 'model',
             parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
-        }];
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalMessages.find(fm => fm.id === imageGenPlaceholderId)! : msg));
-      onMessagesUpdate([...messages, userPromptMessage, finalMessages.find(fm => fm.id === imageGenPlaceholderId)!]);
+        };
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? errorResponseMessage : msg));
+      onMessagesUpdate([...messages, userPromptMessage], errorResponseMessage);
     } finally {
       setIsLoading(false);
     }
@@ -310,44 +322,39 @@ export function ChatAssistant({
     const currentInput = (typeof e === 'string' ? e : input).trim();
     if ((!currentInput && uploadedFiles.length === 0) || isLoading) return;
 
+    // Image generation intent detection
     const imageKeywords = [
       "génère une image de", "génère moi une image de", "génère une image pour",
-      "dessine-moi", "dessine moi", "dessine une image de",
-      "crée une image de", "crée moi une image de",
+      "dessine-moi", "dessine moi", "dessine une image de", "dessines-moi",
+      "crée une image de", "crée moi une image de", "crée-moi une image de",
       "photo de", "image de", "montre-moi une image de",
       "fais une image de", "je veux une image de"
     ];
     const lowerInput = currentInput.toLowerCase();
     let isImageRequestIntent = false;
 
-    if (uploadedFiles.length === 0) {
+    if (uploadedFiles.length === 0) { // Only detect image generation if no files are uploaded
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
-
+    
     if (isImageRequestIntent) {
-      const imagePrompt = imageKeywords.reduce((acc, keyword) => {
-        if (lowerInput.startsWith(keyword)) { // Only replace if it's at the beginning
-          return currentInput.substring(keyword.length).trim();
-        }
-        return acc;
-      }, currentInput);
-      
-      if (typeof e !== 'string') setInput('');
+      if (typeof e !== 'string') setInput(''); // Clear input only if it's from form submission
       clearAllUploadedFiles(); 
-      await handleImageGeneration(imagePrompt || currentInput); 
+      await handleImageGeneration(currentInput); // Pass the full original input
       return;
     }
+
 
     const newUserMessageParts: ChatMessagePart[] = [];
     uploadedFiles.forEach(fileWrapper => {
       let mimeType = fileWrapper.file.type;
-      if (!mimeType || mimeType === "application/octet-stream") {
+      if (!mimeType || mimeType === "application/octet-stream" || mimeType === "") {
         const lowerName = fileWrapper.file.name.toLowerCase();
         if (lowerName.endsWith('.md')) mimeType = 'text/markdown';
         else if (lowerName.endsWith('.txt')) mimeType = 'text/plain';
         else if (lowerName.endsWith('.pdf')) mimeType = 'application/pdf';
         else if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].some(ext => lowerName.endsWith(ext))) {
-          mimeType = fileWrapper.file.type || (lowerName.endsWith('.png') ? 'image/png' : 'image/jpeg');
+          mimeType = fileWrapper.file.type || (lowerName.endsWith('.png') ? 'image/png' : (lowerName.endsWith('.gif') ? 'image/gif' : 'image/jpeg'));
         } else {
           mimeType = 'application/octet-stream'; 
         }
@@ -392,6 +399,7 @@ export function ChatAssistant({
       });
       const reader = readableStream.getReader();
       let accumulatedText = "";
+      let finalAssistantMessage: ChatMessage | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -421,15 +429,15 @@ export function ChatAssistant({
         }
       }
 
-      const finalAssistantMessage: ChatMessage = {
+      finalAssistantMessage = {
         role: 'model',
         parts: [{type: 'text' as 'text', text: accumulatedText }], 
         id: assistantMessageId,
         createdAt: Date.now() 
       };
 
-      setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, finalAssistantMessage]); 
+      setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage! : msg));
+      onMessagesUpdate([...historyForApi], finalAssistantMessage); 
 
 
     } catch (error: any) {
@@ -447,7 +455,7 @@ export function ChatAssistant({
         createdAt: Date.now()
       };
       setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorAssistantMessage : msg));
-      onMessagesUpdate([...historyForApi, errorAssistantMessage]);
+      onMessagesUpdate([...historyForApi], errorAssistantMessage);
     } finally {
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
@@ -591,8 +599,8 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
             } else {
                 flushList();
                 if (line.trim() === '') {
-                    if (lineIdx < segmentLines.length - 1 && segmentLines[lineIdx+1]?.trim() !== '' && (elements.length === 0 || (elements.length > 0 && elements[elements.length-1].type === 'p'))) {
-                       elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>);
+                     if (lineIdx > 0 && segmentLines[lineIdx-1]?.trim() !== '' && elements.length > 0 && elements[elements.length-1].type === 'p') {
+                       elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>); // Creates space between paragraphs
                     }
                 } else {
                     const processedLine = processInlineFormatting(line, `${uniqueKeyPrefix}-p-text-${blockKeyIndex}-${lineIdx}-${keyIndex++}`);
@@ -648,7 +656,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
       parseAndStyleNonCodeText(elements, text.substring(lastIndex, match.index), uniqueKeyPrefix, blockKeyIndex++);
     }
     const lang = match[1]?.toLowerCase() || 'plaintext';
-    const code = match[2].trimEnd(); // Keep trimEnd to remove trailing newlines only from code content
+    const code = match[2].trimEnd(); 
     const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex++}`;
     elements.push(
       <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2.5 rounded-md shadow-sm overflow-hidden">
@@ -669,10 +677,10 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
           style={vscDarkPlus}
           showLineNumbers
           wrapLines={true}
-          lineNumberStyle={{minWidth: '2.25em', paddingRight: '0.5em', opacity: 0.6}}
+          lineNumberStyle={{minWidth: '2.25em', paddingRight: '0.5em', opacity: 0.6, userSelect: 'none'}}
           lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
           className="!py-3 !px-0 !text-sm !bg-transparent !font-mono"
-          codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
+          codeTagProps={{style: {fontFamily: 'var(--font-geist-sans), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
         >
           {code}
         </SyntaxHighlighter>
@@ -756,14 +764,14 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
       <CardHeader className="shrink-0 border-b p-4 flex flex-row items-center justify-between bg-card">
         <div className="flex items-center gap-3">
           <SakaiLogo className="h-8 w-8 text-primary" />
-          <CardTitle className="text-lg 2xl:text-xl font-semibold text-foreground">Sakai</CardTitle>
+          <CardTitle className="text-lg 2xl:text-xl font-semibold">Sakai</CardTitle>
         </div>
          <div className="flex items-center gap-2">
             <ThemeToggleButton />
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 p-0 overflow-hidden">
+      <CardContent className="flex-1 p-0 overflow-hidden min-h-0"> {/* Added min-h-0 */}
         <ScrollArea ref={scrollAreaRef} className="h-full bg-background/60 dark:bg-black/10">
           <div className="p-4 sm:p-6 space-y-6">
             {messages.length === 0 && !isLoading && (
