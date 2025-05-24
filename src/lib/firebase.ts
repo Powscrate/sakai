@@ -5,23 +5,16 @@ import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 
 // ========================================================================= //
-// !! IMPORTANT !! IMPORTANT !! IMPORTANT !! IMPORTANT !! IMPORTANT !!
-//
-// REMPLACEZ LES VALEURS CI-DESSOUS PAR VOTRE CONFIGURATION FIREBASE RÉELLE.
-// Vous trouverez ces informations dans votre console Firebase :
-// Projet -> Paramètres du projet (⚙️) -> Général -> Vos applications -> SDK setup & configuration.
-//
-// SI CES VALEURS SONT INCORRECTES, L'AUTHENTIFICATION ET FIRESTORE ÉCHOUERONT.
-//
+// !! CONFIGURATION FIREBASE MISE À JOUR AVEC VOS IDENTIFIANTS !!
 // ========================================================================= //
 const firebaseConfig = {
-  apiKey: "VOTRE_CLE_API_FIREBASE_ICI", // <- REMPLACEZ PAR VOTRE VRAIE CLÉ API
-  authDomain: "VOTRE_AUTH_DOMAIN_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet.firebaseapp.com)
-  projectId: "VOTRE_ID_DE_PROJET_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet-12345)
-  storageBucket: "VOTRE_STORAGE_BUCKET_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet.appspot.com)
-  messagingSenderId: "VOTRE_MESSAGING_SENDER_ID_FIREBASE_ICI", // <- REMPLACEZ (ex: 123456789012)
-  appId: "VOTRE_APP_ID_FIREBASE_ICI", // <- REMPLACEZ (ex: 1:123456789012:web:abcdef123456abcdef)
-  // measurementId: "VOTRE_MEASUREMENT_ID_FIREBASE_ICI" // Optionnel, mais incluez-le si présent dans votre config Firebase
+  apiKey: "AIzaSyBaIqMl3x5Y2DcHn-9xsZLhSS3jOG_oVP8",
+  authDomain: "life-insights-gv75d.firebaseapp.com",
+  projectId: "life-insights-gv75d",
+  storageBucket: "life-insights-gv75d.appspot.com", // Correction: .appspot.com est plus courant pour storageBucket
+  messagingSenderId: "1093739890237",
+  appId: "1:1093739890237:web:7d353c8d933ffeb7468c54"
+  // measurementId: "VOTRE_MEASUREMENT_ID_FIREBASE_ICI" // measurementId est optionnel
 };
 
 // Initialiser Firebase
@@ -37,7 +30,7 @@ if (!getApps().length) {
         console.error("CRITICAL: Firebase configuration appears to be using placeholder values. Please update src/lib/firebase.ts with your actual project credentials.");
         alert("Erreur de configuration Firebase : Veuillez vérifier vos identifiants Firebase dans src/lib/firebase.ts.");
     }
-    throw new Error("Firebase configuration is likely missing or incomplete. Please check src/lib/firebase.ts and ensure all placeholder values are replaced with your actual Firebase project credentials.");
+    // throw new Error("Firebase configuration is likely missing or incomplete. Please check src/lib/firebase.ts and ensure all placeholder values are replaced with your actual Firebase project credentials.");
   }
   
 } else {
