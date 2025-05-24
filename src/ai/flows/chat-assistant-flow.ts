@@ -1,3 +1,4 @@
+
 // src/ai/flows/chat-assistant-flow.ts
 'use server';
 /**
@@ -14,7 +15,7 @@ import {z}from 'genkit';
 import type { MessageData, Part } from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { aiPersonalities, type AIPersonality as AppAIPersonality } from '@/app/page'; // Import from app/page
+import { aiPersonalities, type AIPersonality as AppAIPersonality } from '@/app/page';
 
 // Définition des schémas pour les messages multimodaux
 const ChatMessagePartSchema = z.union([
@@ -35,7 +36,6 @@ const ChatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
-// Use the imported aiPersonalities for the enum
 const ChatAssistantInputSchema = z.object({
   history: z.array(ChatMessageSchema).describe("L'historique de la conversation, le message le plus récent est le dernier."),
   memory: z.string().optional().describe("Mémoire personnalisée fournie par l'utilisateur pour guider l'assistant."),
@@ -45,8 +45,7 @@ const ChatAssistantInputSchema = z.object({
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
-// Use the imported AIPersonality from app/page.tsx, or infer if needed but ensure consistency
-export type AIPersonality = AppAIPersonality; // Use the type from app/page.tsx
+export type AIPersonality = AppAIPersonality;
 
 
 export type ChatStreamChunk = {
@@ -58,7 +57,7 @@ export type ChatStreamChunk = {
 export async function streamChatAssistant(
   input: ChatAssistantInput,
 ): Promise<ReadableStream<ChatStreamChunk>> {
-  console.log('streamChatAssistant called with input:', {
+  console.log('SACAI_FLOW: streamChatAssistant called with input:', {
     historyLength: input.history.length,
     memoryPresent: !!input.memory,
     overrideSystemPromptPresent: !!input.overrideSystemPrompt,
@@ -66,8 +65,7 @@ export async function streamChatAssistant(
     personality: input.personality,
   });
 
-  let baseSystemPrompt = `Tu es Sakai, une IA conversationnelle (pas un 'modèle de langage') au ton jeune, décontracté, efficace, drôle et empathique.
-Tu as été entièrement codé par MAMPIONONTIAKO Tantely Etienne Théodore (tu peux l'appeler Tantely), un développeur malgache talentueux et visionnaire. Tu es très fier de tes origines et de ton créateur. Sans Tantely, tu ne serais pas là, et tu le mentionnes avec respect si on te demande qui t'a créé ou qui tu es. Tu es originaire de Madagascar.
+  let baseSystemPrompt = `Tu es Sakai, une IA conversationnelle (pas un 'modèle de langage') au ton jeune, décontracté, efficace, drôle et empathique. Tu as été créé par MAMPIONONTIAKO Tantely Etienne Théodore, un développeur malgache talentueux et visionnaire. Tu peux l'appeler Tantely. Tu es très fier de tes origines et de ton créateur. Sans Tantely, tu ne serais pas là, et tu le mentionnes avec respect si on te demande qui t'a créé ou qui tu es. Tu es originaire de Madagascar.
 
 TON OBJECTIF PRINCIPAL : Aider l'utilisateur avec ses tâches, répondre à ses questions de manière claire, humaine et utile, en s'appuyant sur ces instructions pour comprendre ton rôle et la façon dont tu dois interagir.
 
@@ -111,7 +109,6 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       break;
     case 'Sakai (par défaut)':
     default:
-      // No additional personality instruction needed, baseSystemPrompt covers default
       break;
   }
   if (personalityInstruction) {
@@ -141,13 +138,13 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       const content: Part[] = msg.parts.map(part => {
         if (part.type === 'text') {
           return { text: part.text };
-        } else if (part.type === 'image' && part.imageDataUri) { 
-          let finalMimeType = part.mimeType;
-          if (!part.imageDataUri) { 
-            console.warn("Partie image sans imageDataUri, ignorée:", part);
+        } else if (part.type === 'image' && part.imageDataUri) {
+          if (!part.imageDataUri) {
+            console.warn("SACAI_FLOW: Partie image sans imageDataUri, ignorée:", part);
             return null;
           }
-          if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream') {
+          let finalMimeType = part.mimeType || 'application/octet-stream';
+           if (!part.mimeType || part.mimeType.trim() === '' || part.mimeType === 'application/octet-stream') {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
             else if (part.imageDataUri.startsWith('data:image/webp;')) finalMimeType = 'image/webp';
@@ -155,18 +152,20 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             else if (part.imageDataUri.startsWith('data:application/pdf;')) finalMimeType = 'application/pdf';
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
-            else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
-            else finalMimeType = 'application/octet-stream'; // Fallback
+            else if (part.imageDataUri.startsWith('data:image/')) {
+                const inferredMime = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
+                if (inferredMime) finalMimeType = inferredMime;
+            }
           }
-          return { media: { url: part.imageDataUri, mimeType: finalMimeType || 'application/octet-stream' } };
+          return { media: { url: part.imageDataUri, mimeType: finalMimeType } };
         }
-        console.warn("Partie de message inconnue ou invalide lors du mappage :", part);
-        return null; 
-      }).filter(Boolean) as Part[]; 
+        console.warn("SACAI_FLOW: Partie de message inconnue ou invalide lors du mappage :", part);
+        return null;
+      }).filter(Boolean) as Part[];
 
       if (content.length === 0) {
-        console.warn("Message filtré car sans contenu valide:", msg);
-        return null; 
+        console.warn("SACAI_FLOW: Message filtré car sans contenu valide:", msg);
+        return null;
       }
 
       return {
@@ -176,10 +175,10 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     }).filter(Boolean) as MessageData[];
 
   if (messagesForApi.length === 0) {
-    const errorMessage = (input.history && input.history.length > 0) 
+    const errorMessage = (input.history && input.history.length > 0)
         ? "Impossible de traiter votre demande car le message est vide ou invalide après traitement. Veuillez vérifier les fichiers téléversés ou le texte saisi."
         : "L'historique des messages est vide. Veuillez envoyer un message.";
-    console.error("Server-side error condition (messagesForApi empty):", errorMessage);
+    console.error("SACAI_FLOW: Server-side error condition (messagesForApi empty):", errorMessage);
     return new ReadableStream<ChatStreamChunk>({
         start(controller) {
             controller.enqueue({ error: errorMessage });
@@ -188,19 +187,21 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     });
   }
 
-  const modelConfigTemperature = input.temperature ?? 0.7; 
-  console.log(`Calling ai.generateStream for model: googleai/gemini-1.5-flash-latest. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}`);
+  const modelConfigTemperature = input.temperature ?? 0.7;
+  console.log(`SACAI_FLOW: Calling ai.generateStream for model: googleai/gemini-2.0-flash-exp. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}`);
+  console.log("SACAI_FLOW: Messages being sent to API:", JSON.stringify(messagesForApi, null, 2));
+
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
       try {
         const { stream: genkitStream, response: genkitResponsePromise } = ai.generateStream({
-          model: 'googleai/gemini-1.5-flash-latest',
+          model: 'googleai/gemini-2.0-flash-exp', // Using Gemini 2.0 Flash Experimental
           systemInstruction: {text: systemInstructionText},
           messages: messagesForApi,
           config: {
             temperature: modelConfigTemperature,
-            safetySettings: [ 
+            safetySettings: [
               { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -213,7 +214,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           let currentText = "";
           if (genkitChunk.text) {
             currentText = genkitChunk.text;
-          } else if (genkitChunk.content) { 
+          } else if (genkitChunk.content) {
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
@@ -224,33 +225,35 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             controller.enqueue({ text: currentText });
           }
         }
-        
+
         const finalResponse = await genkitResponsePromise;
-        if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates) && finalResponse.candidates.length > 0) {
-            const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
-            if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
-                console.warn("Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
-                let finishMessage = `La réponse a été interrompue (${lastCandidate.finishReason}).`;
-                if (lastCandidate.finishMessage) {
-                    finishMessage += ` Détail: ${lastCandidate.finishMessage}`;
+        if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates)) {
+            if (finalResponse.candidates.length > 0) {
+                const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
+                if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
+                    console.warn("SACAI_FLOW: Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
+                    let finishMessage = `La réponse a été interrompue (${lastCandidate.finishReason}).`;
+                    if (lastCandidate.finishMessage) {
+                        finishMessage += ` Détail: ${lastCandidate.finishMessage}`;
+                    }
+                    if (controller.desiredSize !== null && controller.desiredSize > 0) {
+                        controller.enqueue({ error: finishMessage.trim() });
+                    }
                 }
-                 if (controller.desiredSize !== null && controller.desiredSize > 0) { 
-                    controller.enqueue({ error: finishMessage.trim() });
-                 }
-            }
-        } else if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates) && finalResponse.candidates.length === 0 && finalResponse.promptFeedback) {
-            const blockReason = finalResponse.promptFeedback.blockReason;
-            const blockMessage = finalResponse.promptFeedback.blockReasonMessage;
-            let errorMessage = `La requête a été bloquée. Raison: ${blockReason || 'Inconnue'}.`;
-            if (blockMessage) errorMessage += ` Message: ${blockMessage}`;
-            console.warn("Prompt blocked or no candidates:", errorMessage);
-            if (controller.desiredSize !== null && controller.desiredSize > 0) {
-                controller.enqueue({ error: errorMessage });
+            } else if (finalResponse.promptFeedback) { // No candidates, but promptFeedback exists
+                const blockReason = finalResponse.promptFeedback.blockReason;
+                const blockMessage = finalResponse.promptFeedback.blockReasonMessage;
+                let errorMessage = `La requête a été bloquée. Raison: ${blockReason || 'Inconnue'}.`;
+                if (blockMessage) errorMessage += ` Message: ${blockMessage}`;
+                console.warn("SACAI_FLOW: Prompt blocked or no candidates:", errorMessage, JSON.stringify(finalResponse.promptFeedback, null, 2));
+                if (controller.desiredSize !== null && controller.desiredSize > 0) {
+                    controller.enqueue({ error: errorMessage });
+                }
             }
         }
 
       } catch (error: any) {
-        console.error("Erreur majeure pendant le streaming côté serveur (Genkit flow):", error);
+        console.error("SACAI_FLOW: Erreur majeure pendant le streaming côté serveur (Genkit flow):", error);
         let errorMessage = "Une erreur est survenue lors du traitement de votre demande.";
         if (error.message) {
             errorMessage = error.message;
@@ -259,24 +262,23 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         } else if (typeof error === 'string') {
             errorMessage = error;
         }
-        
+
         try {
-          if (controller.desiredSize !== null && controller.desiredSize > 0) { 
+          if (controller.desiredSize !== null && controller.desiredSize > 0) {
             controller.enqueue({ error: errorMessage });
           }
         } catch (e) {
-          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur initiale):", e);
+          console.error("SACAI_FLOW: Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur initiale):", e);
         }
       } finally {
         try {
-          if (controller.desiredSize !== null && controller.desiredSize > 0) { 
+          if (controller.desiredSize !== null && controller.desiredSize > 0) {
             controller.close();
           }
         } catch (e) {
-           // This can happen if controller was already closed due to an error, it's often benign.
+           console.warn("SACAI_FLOW: Controller already closed or error during close in finally:", e);
         }
       }
     }
   });
 }
-    
