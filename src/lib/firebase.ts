@@ -15,13 +15,13 @@ import { getFirestore, type Firestore } from "firebase/firestore";
 //
 // ========================================================================= //
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE", // <- REMPLACEZ PAR VOTRE VRAIE CLÉ API
-  authDomain: "YOUR_AUTH_DOMAIN_HERE", // <- REMPLACEZ
-  projectId: "YOUR_PROJECT_ID_HERE", // <- REMPLACEZ
-  storageBucket: "YOUR_STORAGE_BUCKET_HERE", // <- REMPLACEZ
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE", // <- REMPLACEZ
-  appId: "YOUR_APP_ID_HERE", // <- REMPLACEZ
-  // measurementId: "YOUR_MEASUREMENT_ID_OPTIONAL" // Optionnel, mais incluez-le si présent dans votre config Firebase
+  apiKey: "VOTRE_CLE_API_FIREBASE_ICI", // <- REMPLACEZ PAR VOTRE VRAIE CLÉ API
+  authDomain: "VOTRE_AUTH_DOMAIN_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet.firebaseapp.com)
+  projectId: "VOTRE_ID_DE_PROJET_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet-12345)
+  storageBucket: "VOTRE_STORAGE_BUCKET_FIREBASE_ICI", // <- REMPLACEZ (ex: monprojet.appspot.com)
+  messagingSenderId: "VOTRE_MESSAGING_SENDER_ID_FIREBASE_ICI", // <- REMPLACEZ (ex: 123456789012)
+  appId: "VOTRE_APP_ID_FIREBASE_ICI", // <- REMPLACEZ (ex: 1:123456789012:web:abcdef123456abcdef)
+  // measurementId: "VOTRE_MEASUREMENT_ID_FIREBASE_ICI" // Optionnel, mais incluez-le si présent dans votre config Firebase
 };
 
 // Initialiser Firebase
@@ -29,17 +29,22 @@ let app: FirebaseApp;
 if (!getApps().length) {
   try {
     app = initializeApp(firebaseConfig);
-    console.log("Firebase initialized successfully.");
+    console.log("Firebase initialized successfully with Project ID:", firebaseConfig.projectId);
   } catch (error) {
     console.error("Firebase initialization error:", error);
-    // Vous pourriez vouloir lancer une erreur ici ou gérer d'une autre manière
-    // si l'initialisation échoue à cause d'une config manifestement invalide (ex: champs manquants)
-    // Toutefois, l'erreur "API key not valid" se manifestera lors du premier appel API.
-    throw new Error("Firebase configuration is likely missing or incomplete. Please check src/lib/firebase.ts");
+    // Vérifiez si les champs essentiels sont des placeholders
+    if (firebaseConfig.apiKey.startsWith("VOTRE_") || firebaseConfig.projectId.startsWith("VOTRE_")) {
+        console.error("CRITICAL: Firebase configuration appears to be using placeholder values. Please update src/lib/firebase.ts with your actual project credentials.");
+        alert("Erreur de configuration Firebase : Veuillez vérifier vos identifiants Firebase dans src/lib/firebase.ts.");
+    }
+    throw new Error("Firebase configuration is likely missing or incomplete. Please check src/lib/firebase.ts and ensure all placeholder values are replaced with your actual Firebase project credentials.");
   }
   
 } else {
   app = getApp();
+  if (app.options.projectId !== firebaseConfig.projectId) {
+    console.warn("Firebase app already initialized with a different Project ID. This might lead to unexpected behavior if multiple Firebase projects are intended.");
+  }
 }
 
 const auth: Auth = getAuth(app);
