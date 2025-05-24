@@ -16,7 +16,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { auth, googleProvider } from '@/lib/firebase'; 
 import { signInWithEmailAndPassword, onAuthStateChanged, signInWithPopup, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
-import { generateLoginThought } from '@/ai/flows/generate-login-thought-flow';
+import { generateLoginThought, type GenerateLoginThoughtOutput } from '@/ai/flows/generate-login-thought-flow';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,17 +33,20 @@ export default function LoginPage() {
   
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intervalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null); // Ref for email input
 
   const fetchLoginThought = useCallback(async (currentEmail: string) => {
     setIsSubtitleLoading(true);
     try {
-      const result = await generateLoginThought({ emailFragment: currentEmail });
+      const result: GenerateLoginThoughtOutput = await generateLoginThought({ emailFragment: currentEmail });
       if (result.thought) {
         setDynamicSubtitle(result.thought);
+      } else if (result.error) {
+        console.warn("Login thought generation error:", result.error);
+        // Keep previous or default subtitle
       }
     } catch (error) {
       console.error("Error fetching login thought:", error);
-      // Keep default or previous subtitle on error
     } finally {
       setIsSubtitleLoading(false);
     }
@@ -51,35 +54,27 @@ export default function LoginPage() {
 
   useEffect(() => {
     fetchLoginThought(""); // Initial thought
-
-    // Cleanup function for the interval
-    return () => {
-      if (intervalTimeoutRef.current) {
-        clearInterval(intervalTimeoutRef.current);
-      }
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchLoginThought]); // Run once on mount
+  }, []); // Run once on mount
 
-  // Debounced fetch for email input
   useEffect(() => {
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
     debounceTimeoutRef.current = setTimeout(() => {
-      if (email.length > 0) { // Fetch only if email has content
+      if (email.trim().length > 0) { 
         fetchLoginThought(email);
-         if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current); // Stop interval if user is typing
-      } else if (email.length === 0 && !intervalTimeoutRef.current) {
-        // If email is cleared and no interval running, fetch once and restart interval
+         if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current);
+      } else if (email.trim().length === 0 && !intervalTimeoutRef.current) {
         fetchLoginThought("");
+        // Restart interval for generic thoughts if email is empty
         intervalTimeoutRef.current = setInterval(() => {
-            if (!document.hasFocus() || document.activeElement !== document.getElementById('email')) { // Only refresh if page/input not focused
+            if (document.visibilityState === 'visible' && document.activeElement !== emailInputRef.current) {
                 fetchLoginThought("");
             }
-        }, 20000); // Refresh generic thought every 20s if email is empty and page/input not focused
+        }, 20000);
       }
-    }, 700); // Debounce for 700ms
+    }, 700); 
 
     return () => {
       if (debounceTimeoutRef.current) {
@@ -88,16 +83,14 @@ export default function LoginPage() {
     };
   }, [email, fetchLoginThought]);
 
-  // Interval for generic thoughts when email is empty
   useEffect(() => {
-    if (email.length === 0) {
-      if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current); // Clear any existing interval
+    if (email.trim().length === 0) {
+      if (intervalTimeoutRef.current) clearInterval(intervalTimeoutRef.current);
       intervalTimeoutRef.current = setInterval(() => {
-        // Only refresh if the page is visible and email input is not focused, to be less intrusive
-        if (document.visibilityState === 'visible' && document.activeElement !== document.getElementById('email')) {
+        if (document.visibilityState === 'visible' && document.activeElement !== emailInputRef.current) {
             fetchLoginThought("");
         }
-      }, 20000); // Refresh every 20 seconds
+      }, 20000); 
     } else {
       if (intervalTimeoutRef.current) {
         clearInterval(intervalTimeoutRef.current);
@@ -151,12 +144,11 @@ export default function LoginPage() {
           case 'auth/invalid-email':
             errorMessage = "L'adresse email n'est pas valide.";
             break;
-          default: // Firebase might return specific error messages directly
-             if ((error as any).message && (error as any).message.includes('auth/invalid-credential')) {
-                 errorMessage = "Email ou mot de passe incorrect.";
-             } else {
-                errorMessage = "Erreur de connexion : " + error.message;
-             }
+          case 'auth/too-many-requests':
+            errorMessage = "Trop de tentatives de connexion. Veuillez réessayer plus tard.";
+            break;
+          default: 
+             errorMessage = "Erreur de connexion : " + (error.message || error.code);
         }
       }
       toast({ title: "Erreur de connexion", description: errorMessage, variant: "destructive" });
@@ -176,12 +168,18 @@ export default function LoginPage() {
       console.error("Google sign-in error:", error);
       let errorMessage = "Erreur de connexion avec Google.";
       if (error instanceof FirebaseError) {
-        if (error.code === 'auth/popup-closed-by-user') {
-          errorMessage = "La fenêtre de connexion Google a été fermée.";
-        } else if (error.code === 'auth/account-exists-with-different-credential') {
-          errorMessage = "Un compte existe déjà avec cet email mais avec une méthode de connexion différente.";
-        } else {
-          errorMessage = "Erreur Google: " + error.message;
+        switch (error.code) {
+            case 'auth/popup-closed-by-user':
+              errorMessage = "La fenêtre de connexion Google a été fermée.";
+              break;
+            case 'auth/account-exists-with-different-credential':
+              errorMessage = "Un compte existe déjà avec cet email mais avec une méthode de connexion différente.";
+              break;
+            case 'auth/popup-blocked':
+                errorMessage = "La fenêtre de connexion Google a été bloquée par le navigateur. Veuillez autoriser les popups.";
+                break;
+            default:
+              errorMessage = "Erreur Google: " + (error.message || error.code);
         }
       }
       toast({ title: "Erreur de connexion Google", description: errorMessage, variant: "destructive" });
@@ -206,7 +204,7 @@ export default function LoginPage() {
             <SakaiLogo className="h-16 w-16 text-primary" />
           </div>
           <CardTitle className="text-3xl font-bold">Bienvenue sur Sakai</CardTitle>
-          <CardDescription className="min-h-[40px] transition-all duration-300 text-sm"> {/* Increased min-height */}
+          <CardDescription className="min-h-[40px] transition-all duration-300 text-sm"> 
             {isSubtitleLoading && !dynamicSubtitle.includes("Connectez-vous") ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : dynamicSubtitle}
           </CardDescription>
         </CardHeader>
@@ -215,6 +213,7 @@ export default function LoginPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Adresse Email</Label>
               <Input
+                ref={emailInputRef} // Assign ref
                 id="email"
                 type="email"
                 placeholder="vous@exemple.com"
@@ -277,3 +276,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

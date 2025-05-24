@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview Flux Genkit pour générer une pensée amusante pour la page de connexion.
@@ -8,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z}from 'genkit';
 
 const GenerateLoginThoughtInputSchema = z.object({
   emailFragment: z.string().optional().describe("Le fragment d'email actuellement tapé par l'utilisateur."),
@@ -17,12 +18,9 @@ export type GenerateLoginThoughtInput = z.infer<typeof GenerateLoginThoughtInput
 
 const GenerateLoginThoughtOutputSchema = z.object({
   thought: z.string().describe("Une pensée courte, amusante ou un commentaire pertinent."),
+  error: z.string().optional().describe("Message d'erreur si la génération a échoué."),
 });
 export type GenerateLoginThoughtOutput = z.infer<typeof GenerateLoginThoughtOutputSchema>;
-
-export async function generateLoginThought(input: GenerateLoginThoughtInput): Promise<GenerateLoginThoughtOutput> {
-  return generateLoginThoughtFlow(input);
-}
 
 const generateLoginThoughtPrompt = ai.definePrompt({
   name: 'generateLoginThoughtPrompt',
@@ -42,14 +40,17 @@ Exemples si l'entrée est "john.doe": "Stylé le pseudo, mais il manque le domai
 Ta pensée :`,
 });
 
-const generateLoginThoughtFlow = ai.defineFlow(
-  {
-    name: 'generateLoginThoughtFlow',
-    inputSchema: GenerateLoginThoughtInputSchema,
-    outputSchema: GenerateLoginThoughtOutputSchema,
-  },
-  async (input) => {
+export async function generateLoginThought(input: GenerateLoginThoughtInput): Promise<GenerateLoginThoughtOutput> {
+  const fallbackOutput = { thought: "Prêt à discuter avec l'IA la plus cool ?" };
+  try {
     const {output} = await generateLoginThoughtPrompt(input);
-    return output || { thought: "Prêt à discuter avec l'IA la plus cool ?" };
+    if (output && output.thought) {
+        return { thought: output.thought };
+    }
+    console.warn("generateLoginThought: Prompt did not return a thought. Using fallback.");
+    return fallbackOutput;
+  } catch (error: any) {
+    console.error("Error in generateLoginThoughtFlow:", error);
+    return { ...fallbackOutput, error: error.message || "Erreur lors de la génération de la pensée de connexion." };
   }
-);
+}

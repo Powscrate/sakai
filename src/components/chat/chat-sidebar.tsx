@@ -5,7 +5,7 @@ import Link from 'next/link';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label"; // Added this import
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,11 +20,11 @@ import {
   Brain, SlidersHorizontal, Info, Trash2, LogOut, Menu, Plus,
   MessageSquare, Contact, Zap, User as UserIcon, Settings, PanelLeftClose, 
   PanelRightClose, Lightbulb, Edit3, Check, X, ChevronsUpDown, ChevronUp, ChevronDown,
-  Image as ImageIcon, Languages, Laugh, Sparkles // Added missing icons here
+  Image as ImageIcon, Languages, Laugh, Sparkles
 } from 'lucide-react';
 import { SakaiLogo } from '@/components/icons/logo';
 import type { ChatSession, AIPersonality } from '@/app/page'; 
-import { aiPersonalities } from '@/app/page';
+import { aiPersonalities } from '@/app/page'; // Correct import
 import { cn } from '@/lib/utils';
 import { ThemeToggleButton } from './theme-toggle-button';
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";

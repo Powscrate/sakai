@@ -1,4 +1,4 @@
-
+// src/ai/flows/chat-assistant-flow.ts
 'use server';
 /**
  * @fileOverview Flux Genkit pour un assistant de chat IA en streaming.
@@ -14,6 +14,7 @@ import {z}from 'genkit';
 import type { MessageData, Part } from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { aiPersonalities, type AIPersonality as AppAIPersonality } from '@/app/page'; // Import from app/page
 
 // Définition des schémas pour les messages multimodaux
 const ChatMessagePartSchema = z.union([
@@ -34,14 +35,19 @@ const ChatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+// Use the imported aiPersonalities for the enum
 const ChatAssistantInputSchema = z.object({
   history: z.array(ChatMessageSchema).describe("L'historique de la conversation, le message le plus récent est le dernier."),
   memory: z.string().optional().describe("Mémoire personnalisée fournie par l'utilisateur pour guider l'assistant."),
   overrideSystemPrompt: z.string().optional().describe("Invite système personnalisée pour surcharger celle par défaut (mode développeur)."),
   temperature: z.number().min(0).max(1).optional().describe("Température du modèle (mode développeur)."),
-  personality: z.string().optional().describe("Personnalité choisie pour Sakai (ex: 'Sakai (par défaut)', 'Développeur Pro')"),
+  personality: z.enum(aiPersonalities).optional().describe("Personnalité choisie pour Sakai (ex: 'Sakai (par défaut)', 'Développeur Pro')"),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
+
+// Use the imported AIPersonality from app/page.tsx, or infer if needed but ensure consistency
+export type AIPersonality = AppAIPersonality; // Use the type from app/page.tsx
+
 
 export type ChatStreamChunk = {
   text?: string;
@@ -116,7 +122,6 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
 
   if (input.overrideSystemPrompt && input.overrideSystemPrompt.trim() !== '') {
     systemInstructionText = input.overrideSystemPrompt.trim();
-    // Add date to override if not present
     const lowerOverride = systemInstructionText.toLowerCase();
     if (!lowerOverride.includes("la date actuelle est") && !lowerOverride.includes("aujourd'hui, on est le")) {
         systemInstructionText += `\n(Date actuelle pour info : ${format(new Date(), 'PPPP', { locale: fr })})`;
@@ -125,7 +130,6 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     systemInstructionText = baseSystemPrompt;
   }
 
-  // Memory is always added, after the main system prompt (either base or override)
   if (input.memory && input.memory.trim() !== '') {
     systemInstructionText = `${systemInstructionText}\n\n--- MÉMOIRE UTILISATEUR (infos que tu dois ABSOLUMENT utiliser) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE UTILISATEUR ---`;
   }
@@ -139,6 +143,10 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           return { text: part.text };
         } else if (part.type === 'image' && part.imageDataUri) { 
           let finalMimeType = part.mimeType;
+          if (!part.imageDataUri) { 
+            console.warn("Partie image sans imageDataUri, ignorée:", part);
+            return null;
+          }
           if (!finalMimeType || finalMimeType.trim() === '' || finalMimeType === 'application/octet-stream') {
             if (part.imageDataUri.startsWith('data:image/png;')) finalMimeType = 'image/png';
             else if (part.imageDataUri.startsWith('data:image/jpeg;')) finalMimeType = 'image/jpeg';
@@ -148,7 +156,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             else if (part.imageDataUri.startsWith('data:text/plain;')) finalMimeType = 'text/plain';
             else if (part.imageDataUri.startsWith('data:text/markdown;')) finalMimeType = 'text/markdown';
             else if (part.imageDataUri.startsWith('data:image/')) finalMimeType = part.imageDataUri.substring(5, part.imageDataUri.indexOf(';'));
-            else finalMimeType = 'application/octet-stream'; 
+            else finalMimeType = 'application/octet-stream'; // Fallback
           }
           return { media: { url: part.imageDataUri, mimeType: finalMimeType || 'application/octet-stream' } };
         }
@@ -167,9 +175,11 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       };
     }).filter(Boolean) as MessageData[];
 
-  if (messagesForApi.length === 0 && input.history.length > 0) {
-    const errorMessage = "Impossible de traiter votre demande car le message est vide ou invalide. Veuillez vérifier les fichiers téléversés ou le texte saisi.";
-    console.error(errorMessage);
+  if (messagesForApi.length === 0) {
+    const errorMessage = (input.history && input.history.length > 0) 
+        ? "Impossible de traiter votre demande car le message est vide ou invalide après traitement. Veuillez vérifier les fichiers téléversés ou le texte saisi."
+        : "L'historique des messages est vide. Veuillez envoyer un message.";
+    console.error("Server-side error condition (messagesForApi empty):", errorMessage);
     return new ReadableStream<ChatStreamChunk>({
         start(controller) {
             controller.enqueue({ error: errorMessage });
@@ -177,22 +187,9 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
     });
   }
-  if (messagesForApi.length === 0 && (!input.history || input.history.length === 0)) {
-     const errorMessage = "L'historique des messages est vide. Veuillez envoyer un message.";
-     console.error(errorMessage);
-     return new ReadableStream<ChatStreamChunk>({
-        start(controller) {
-            controller.enqueue({ error: errorMessage });
-            controller.close();
-        }
-    });
-  }
-
 
   const modelConfigTemperature = input.temperature ?? 0.7; 
-  console.log('Calling ai.generateStream with model: googleai/gemini-1.5-flash-latest');
-  // console.log('System Instruction length:', systemInstructionText.length); // Potentially very long
-  // console.log('Number of messages for API:', messagesForApi.length); // Potentially sensitive or long
+  console.log(`Calling ai.generateStream for model: googleai/gemini-1.5-flash-latest. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}`);
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
@@ -229,22 +226,38 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         }
         
         const finalResponse = await genkitResponsePromise;
-        if (finalResponse && finalResponse.candidates.length > 0) {
+        if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates) && finalResponse.candidates.length > 0) {
             const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
             if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
                 console.warn("Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
+                let finishMessage = `La réponse a été interrompue (${lastCandidate.finishReason}).`;
+                if (lastCandidate.finishMessage) {
+                    finishMessage += ` Détail: ${lastCandidate.finishMessage}`;
+                }
                  if (controller.desiredSize !== null && controller.desiredSize > 0) { 
-                    controller.enqueue({ error: `La réponse a été interrompue (${lastCandidate.finishReason}). ${lastCandidate.finishMessage || ''}`.trim() });
+                    controller.enqueue({ error: finishMessage.trim() });
                  }
             }
+        } else if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates) && finalResponse.candidates.length === 0 && finalResponse.promptFeedback) {
+            const blockReason = finalResponse.promptFeedback.blockReason;
+            const blockMessage = finalResponse.promptFeedback.blockReasonMessage;
+            let errorMessage = `La requête a été bloquée. Raison: ${blockReason || 'Inconnue'}.`;
+            if (blockMessage) errorMessage += ` Message: ${blockMessage}`;
+            console.warn("Prompt blocked or no candidates:", errorMessage);
+            if (controller.desiredSize !== null && controller.desiredSize > 0) {
+                controller.enqueue({ error: errorMessage });
+            }
         }
+
       } catch (error: any) {
-        console.error("Erreur pendant le streaming côté serveur (Genkit flow):", error);
-        let errorMessage = "Une erreur est survenue lors du traitement du flux.";
+        console.error("Erreur majeure pendant le streaming côté serveur (Genkit flow):", error);
+        let errorMessage = "Une erreur est survenue lors du traitement de votre demande.";
         if (error.message) {
             errorMessage = error.message;
-        } else if (error.cause?.message) { // Check for nested cause
+        } else if (error.cause?.message) {
             errorMessage = error.cause.message;
+        } else if (typeof error === 'string') {
+            errorMessage = error;
         }
         
         try {
@@ -252,20 +265,18 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             controller.enqueue({ error: errorMessage });
           }
         } catch (e) {
-          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé):", e);
+          console.error("Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur initiale):", e);
         }
       } finally {
         try {
-          if (controller.desiredSize !== null) { 
+          if (controller.desiredSize !== null && controller.desiredSize > 0) { 
             controller.close();
           }
         } catch (e) {
-           console.warn("Avertissement lors de la tentative de fermeture du contrôleur de flux (dans finally):", e);
+           // This can happen if controller was already closed due to an error, it's often benign.
         }
       }
     }
   });
 }
     
-
-      

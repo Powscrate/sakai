@@ -8,19 +8,16 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z}from 'genkit';
 
 // Pas d'input nécessaire pour ce flux
 export type GenerateSakaiThoughtInput = void;
 
 const GenerateSakaiThoughtOutputSchema = z.object({
   thought: z.string().describe("Une pensée courte, amusante, un fait intéressant, ou une citation inspirante de Sakai."),
+  error: z.string().optional().describe("Message d'erreur si la génération a échoué."),
 });
 export type GenerateSakaiThoughtOutput = z.infer<typeof GenerateSakaiThoughtOutputSchema>;
-
-export async function generateSakaiThought(): Promise<GenerateSakaiThoughtOutput> {
-  return generateSakaiThoughtFlow();
-}
 
 const generateSakaiThoughtPrompt = ai.definePrompt({
   name: 'generateSakaiThoughtPrompt',
@@ -45,21 +42,18 @@ Quelques exemples de ton style :
 Ta pensée :`,
 });
 
-const generateSakaiThoughtFlow = ai.defineFlow(
-  {
-    name: 'generateSakaiThoughtFlow',
-    // inputSchema: z.void(), // Explicitement void
-    outputSchema: GenerateSakaiThoughtOutputSchema,
-  },
-  async () => {
-    const fallbackThought = { thought: "Prêt à explorer les mystères de l'univers... ou juste à trouver un bon mème ?" };
-    try {
-      const {output} = await generateSakaiThoughtPrompt({}); // Passer un objet vide si aucun input n'est défini
-      return output || fallbackThought;
-    } catch (error) {
-      console.error("Error in generateSakaiThoughtFlow while calling prompt:", error);
-      return fallbackThought;
+export async function generateSakaiThought(): Promise<GenerateSakaiThoughtOutput> {
+  const fallbackOutput = { thought: "Prêt à explorer les mystères de l'univers... ou juste à trouver un bon mème ?" };
+  try {
+    const {output} = await generateSakaiThoughtPrompt({}); 
+    if (output && output.thought) {
+        return { thought: output.thought };
     }
+    console.warn("generateSakaiThought: Prompt did not return a thought. Using fallback.");
+    return fallbackOutput;
+  } catch (error: any) {
+    console.error("Error in generateSakaiThoughtFlow while calling prompt:", error);
+    return { ...fallbackOutput, error: error.message || "Erreur lors de la génération de la pensée de Sakai." };
   }
-);
+}
 

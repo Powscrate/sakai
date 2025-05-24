@@ -1,30 +1,49 @@
+
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth, GoogleAuthProvider } from "firebase/auth"; // Added GoogleAuthProvider
+import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 
-// IMPORTANT: Remplacez ceci par la configuration réelle de votre projet Firebase
-// Vous trouverez ces informations dans la console Firebase :
-// Paramètres du projet > Général > Vos applications > Application Web > SDK setup & configuration
+// ========================================================================= //
+// !! IMPORTANT !! IMPORTANT !! IMPORTANT !! IMPORTANT !! IMPORTANT !!
+//
+// REMPLACEZ LES VALEURS CI-DESSOUS PAR VOTRE CONFIGURATION FIREBASE RÉELLE.
+// Vous trouverez ces informations dans votre console Firebase :
+// Projet -> Paramètres du projet (⚙️) -> Général -> Vos applications -> SDK setup & configuration.
+//
+// SI CES VALEURS SONT INCORRECTES, L'AUTHENTIFICATION ET FIRESTORE ÉCHOUERONT.
+//
+// ========================================================================= //
 const firebaseConfig = {
-  apiKey: "AIzaSyBaIqMl3x5Y2DcHn-9xsZLhSS3jOG_oVP8",
-  authDomain: "life-insights-gv75d.firebaseapp.com",
-  projectId: "life-insights-gv75d",
-  storageBucket: "life-insights-gv75d.firebasestorage.app",
-  messagingSenderId: "1093739890237",
-  appId: "1:1093739890237:web:7d353c8d933ffeb7468c54"
+  apiKey: "YOUR_API_KEY_HERE", // <- REMPLACEZ PAR VOTRE VRAIE CLÉ API
+  authDomain: "YOUR_AUTH_DOMAIN_HERE", // <- REMPLACEZ
+  projectId: "YOUR_PROJECT_ID_HERE", // <- REMPLACEZ
+  storageBucket: "YOUR_STORAGE_BUCKET_HERE", // <- REMPLACEZ
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE", // <- REMPLACEZ
+  appId: "YOUR_APP_ID_HERE", // <- REMPLACEZ
+  // measurementId: "YOUR_MEASUREMENT_ID_OPTIONAL" // Optionnel, mais incluez-le si présent dans votre config Firebase
 };
 
 // Initialiser Firebase
 let app: FirebaseApp;
 if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
+  try {
+    app = initializeApp(firebaseConfig);
+    console.log("Firebase initialized successfully.");
+  } catch (error) {
+    console.error("Firebase initialization error:", error);
+    // Vous pourriez vouloir lancer une erreur ici ou gérer d'une autre manière
+    // si l'initialisation échoue à cause d'une config manifestement invalide (ex: champs manquants)
+    // Toutefois, l'erreur "API key not valid" se manifestera lors du premier appel API.
+    throw new Error("Firebase configuration is likely missing or incomplete. Please check src/lib/firebase.ts");
+  }
+  
 } else {
   app = getApp();
 }
 
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
-const googleProvider = new GoogleAuthProvider(); // Added GoogleAuthProvider instance
+const googleProvider = new GoogleAuthProvider(); 
 
-export { app, auth, db, googleProvider }; // Exported googleProvider
+export { app, auth, db, googleProvider };
