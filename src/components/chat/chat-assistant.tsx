@@ -12,7 +12,7 @@ import {
   Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Settings, Zap, Contact
 } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-
+import { ThemeToggleButton } from './theme-toggle-button';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -28,7 +28,6 @@ import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-ima
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
-import { ThemeToggleButton } from './theme-toggle-button';
 import type { AIPersonality } from '@/app/page';
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -75,7 +74,7 @@ interface UploadedFileWrapper {
 
 interface ChatAssistantProps {
   initialMessages?: ChatMessage[];
-  onMessagesUpdate: (messages: ChatMessage[], newAssistantMessage?: ChatMessage) => void;
+  onMessagesUpdate: (messages: ChatMessage[]) => void; // Modified: only sends the complete list
   userMemory: string;
   devOverrideSystemPrompt?: string;
   devModelTemperature?: number;
@@ -143,6 +142,7 @@ export function ChatAssistant({
         setMessages(initialMessages);
         setInput('');
         setUploadedFiles([]);
+        if (inputRef.current) inputRef.current.focus();
     }
   }, [activeChatId, initialMessages]);
 
@@ -168,8 +168,7 @@ export function ChatAssistant({
     const files = event.target.files;
     if (files && files.length > 0) {
       const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf', 'text/plain', 'text/markdown'];
-      const newFilesBuffer: UploadedFileWrapper[] = [];
-
+      
       Array.from(files).forEach(file => {
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
         let effectiveMimeType = file.type;
@@ -183,11 +182,11 @@ export function ChatAssistant({
           else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
           else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
           else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif';
-          else effectiveMimeType = 'application/octet-stream';
+          else effectiveMimeType = 'application/octet-stream'; // Fallback
         }
 
         const isAllowed = allowedMimeTypes.some(allowedType => {
-            if (allowedType.endsWith('/*')) {
+            if (allowedType.endsWith('/*')) { // e.g. image/*
                 return effectiveMimeType.startsWith(allowedType.slice(0, -2));
             }
             return effectiveMimeType === allowedType;
@@ -226,6 +225,7 @@ export function ChatAssistant({
         }
       });
     }
+    // Reset file input to allow re-uploading the same file
     if (event.target) {
         event.target.value = '';
     }
@@ -244,11 +244,10 @@ export function ChatAssistant({
 
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
-    setCurrentStreamingMessageId(null);
+    setCurrentStreamingMessageId(null); // Not streaming text here initially
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
-    // Capture current input for the prompt, then clear it.
     const coreImagePrompt = promptText.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de|montre-moi une image de|fais une image de|je veux une image de)\s*/i, '').trim();
 
     const userPromptMessage: ChatMessage = {
@@ -264,25 +263,19 @@ export function ChatAssistant({
       id: imageGenPlaceholderId,
       createdAt: Date.now() + 1,
     };
+    
+    setMessages(prev => [...prev, userPromptMessage, assistantPlaceholderMessage]);
 
-    // Update local state for display first
-    const updatedDisplayMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
-    setMessages(updatedDisplayMessages);
-
-    // Update parent/persistent state only with the user message initially
-    onMessagesUpdate([...initialMessages, userPromptMessage]);
+    let finalAssistantMessage: ChatMessage;
 
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: coreImagePrompt });
-      let finalAssistantMessagePart: ChatMessagePart;
-      let finalAssistantMessage: ChatMessage;
 
       if (result.imageUrl) {
-        finalAssistantMessagePart = { type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' };
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [finalAssistantMessagePart],
-            id: imageGenPlaceholderId,
+            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
+            id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
       } else {
@@ -292,18 +285,13 @@ export function ChatAssistant({
           description: errorMessage,
           variant: "destructive",
         });
-        finalAssistantMessagePart = { type: 'text' as 'text', text: `Désolé, je n'ai pas pu générer l'image. ${errorMessage}` };
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [finalAssistantMessagePart],
-            id: imageGenPlaceholderId,
+            parts: [{ type: 'text' as 'text', text: `Désolé, je n'ai pas pu générer l'image. ${errorMessage}` }],
+            id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
       }
-
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
-      onMessagesUpdate([...initialMessages, userPromptMessage], finalAssistantMessage);
-
     } catch (error: unknown) {
       console.error("Erreur de génération d'image (client):", error);
       const errorMessage = (error as Error)?.message || "Désolé, une erreur est survenue lors de la génération de l'image.";
@@ -312,15 +300,15 @@ export function ChatAssistant({
         description: errorMessage,
         variant: "destructive",
       });
-       const errorResponseMessage: ChatMessage = {
+       finalAssistantMessage = {
             role: 'model' as 'model',
             parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-            id: imageGenPlaceholderId,
+            id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
-      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? errorResponseMessage : msg));
-      onMessagesUpdate([...initialMessages, userPromptMessage], errorResponseMessage);
     } finally {
+      setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage : msg));
+      onMessagesUpdate([...initialMessages, userPromptMessage, finalAssistantMessage]);
       setIsLoading(false);
     }
   };
@@ -329,29 +317,23 @@ export function ChatAssistant({
     if (typeof e === 'object' && e?.preventDefault) e.preventDefault();
 
     const currentInputVal = (typeof e === 'string' ? e : input).trim();
-    const currentUploadedFiles = [...uploadedFiles]; // Capture before clearing
+    const currentUploadedFiles = [...uploadedFiles]; 
 
     if ((!currentInputVal && currentUploadedFiles.length === 0) || isLoading) return;
 
-    setInput('');
-    clearAllUploadedFiles();
-
-    // Image generation intent detection
+    // Image generation intent detection (simplified)
     const imageKeywords = [
-      "génère une image de", "génère moi une image de", "génère une image pour",
-      "dessine-moi", "dessine moi", "dessine une image de", "dessines-moi",
-      "crée une image de", "crée moi une image de", "crée-moi une image de",
-      "photo de", "image de", "montre-moi une image de",
-      "fais une image de", "je veux une image de"
+      "génère une image de", "dessine-moi", "crée une image de", "photo de", "image de"
     ];
     const lowerInput = currentInputVal.toLowerCase();
     let isImageRequestIntent = false;
-
-    if (currentUploadedFiles.length === 0) {
+    if (currentUploadedFiles.length === 0) { // Only if no files are uploaded
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
+      setInput(''); 
+      clearAllUploadedFiles();
       await handleImageGeneration(currentInputVal);
       return;
     }
@@ -359,7 +341,7 @@ export function ChatAssistant({
     const newUserMessageParts: ChatMessagePart[] = [];
     currentUploadedFiles.forEach(fileWrapper => {
       newUserMessageParts.push({
-        type: 'image',
+        type: 'image', // 'image' type is used for all media for Gemini
         imageDataUri: fileWrapper.dataUri,
         mimeType: fileWrapper.file.type || 'application/octet-stream'
       });
@@ -371,20 +353,22 @@ export function ChatAssistant({
 
     if (newUserMessageParts.length === 0) return;
 
+    setInput('');
+    clearAllUploadedFiles();
+
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}`, createdAt: Date.now() };
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
     setIsLoading(true);
 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
-
-    // Update local display state immediately
+    
+    // Update local UI immediately
     setMessages(prev => [...prev, newUserMessage, assistantPlaceholderMessage]);
-    // Update parent/persistent state with only the user message for now
-    onMessagesUpdate([...initialMessages, newUserMessage]);
-
 
     const historyForApi = [...initialMessages, newUserMessage];
+    let finalAssistantMessage: ChatMessage | null = null;
+    let accumulatedText = "";
 
     try {
       const readableStream = await streamChatAssistant({
@@ -395,9 +379,7 @@ export function ChatAssistant({
         personality: selectedPersonality,
       });
       const reader = readableStream.getReader();
-      let accumulatedText = "";
-      let finalAssistantMessage: ChatMessage | null = null;
-
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -408,7 +390,7 @@ export function ChatAssistant({
           console.error("Stream error from server:", chatChunk.error);
           accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`;
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
-          break;
+          break; 
         }
 
         if (chatChunk.text) {
@@ -430,27 +412,38 @@ export function ChatAssistant({
         createdAt: Date.now()
       };
 
-      setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage! : msg));
-      onMessagesUpdate([...initialMessages, newUserMessage], finalAssistantMessage);
-
-
     } catch (error: any) {
-      console.error("Erreur lors du streaming du chat (côté client):", error);
+      console.error("Erreur majeure lors du streaming (côté client):", error);
       const errorMessageText = error?.message || "Désolé, une erreur de communication est survenue.";
       toast({
         title: "Erreur de Communication",
         description: errorMessageText,
         variant: "destructive",
       });
-      const errorAssistantMessage: ChatMessage = {
+      finalAssistantMessage = {
         role: 'model',
         parts: [{ type: 'text', text: errorMessageText }],
         id: assistantMessageId,
         createdAt: Date.now()
       };
-      setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorAssistantMessage : msg));
-      onMessagesUpdate([...initialMessages, newUserMessage], errorAssistantMessage);
     } finally {
+      if (finalAssistantMessage) {
+        setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessage! : msg));
+        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessage]);
+      } else {
+        // Case where an error might have occurred before finalAssistantMessage was formed, 
+        // or stream ended abruptly. We still need to persist something.
+        // accumulatedText might contain partial error message.
+        const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
+        const errorMsgForPersistence: ChatMessage = {
+          role: 'model',
+          parts: [{ type: 'text', text: fallbackErrorMsg }],
+          id: assistantMessageId,
+          createdAt: Date.now()
+        };
+        setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorMsgForPersistence : msg));
+        onMessagesUpdate([...initialMessages, newUserMessage, errorMsgForPersistence]);
+      }
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
     }
@@ -521,13 +514,13 @@ export function ChatAssistant({
         if (match.index > lastIndex) {
             parts.push(remainingText.substring(lastIndex, match.index));
         }
-        if (match[2]) {
+        if (match[2]) { // ***bold italic*** or ___bold italic___
             parts.push(<strong key={`${baseKey}-bi-${keyIdx++}`}><em>{match[2]}</em></strong>);
-        } else if (match[4]) {
+        } else if (match[4]) { // **bold** or __bold__
             parts.push(<strong key={`${baseKey}-strong-${keyIdx++}`}>{match[4]}</strong>);
-        } else if (match[6]) {
+        } else if (match[6]) { // *italic* or _italic_
             parts.push(<em key={`${baseKey}-em-${keyIdx++}`}>{match[6]}</em>);
-        } else if (match[8]) {
+        } else if (match[8]) { // `code`
             parts.push(<code key={`${baseKey}-code-${keyIdx++}`} className="px-1 py-0.5 bg-muted text-muted-foreground rounded-sm text-xs font-mono">{match[8]}</code>);
         }
         lastIndex = match.index + match[0].length;
@@ -583,6 +576,7 @@ const parseAndStyleNonCodeText = (elements: JSX.Element[], textBlock: string, un
         } else {
             flushList();
             if (line.trim() === '') {
+                // Add a small break for an empty line if it's not the first or last and the previous wasn't also empty
                 if (lineIdx > 0 && segmentLines[lineIdx-1]?.trim() !== '' && elements.length > 0 && elements[elements.length-1].type === 'p') {
                    elements.push(<div key={`${uniqueKeyPrefix}-pbr-${blockKeyIndex}-${lineIdx}-${keyIndex++}`} className="h-2 2xl:h-3"></div>);
                 }
@@ -607,9 +601,9 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
       parseAndStyleNonCodeText(elements, text.substring(lastIndex, match.index), uniqueKeyPrefix, blockKeyIndex++);
     }
 
-    if (match[1].startsWith('```')) {
+    if (match[1].startsWith('```')) { // Code block
       const lang = match[2]?.toLowerCase() || 'plaintext';
-      const code = match[3].trimEnd();
+      const code = match[3].trimEnd(); // Ensure no trailing newline from the capture
       const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex++}`;
       elements.push(
         <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2.5 rounded-md shadow-sm overflow-hidden">
@@ -632,20 +626,21 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
             wrapLines={true}
             lineNumberStyle={{minWidth: '2.25em', paddingRight: '0.5em', opacity: 0.6, userSelect: 'none'}}
             lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap', display: 'block' } }}
-            className="!py-3 !px-0 !text-sm !bg-transparent !font-mono"
-            codeTagProps={{style: {fontFamily: 'var(--font-geist-sans), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
+            className="!py-3 !px-0 !text-sm !bg-transparent !font-mono" // !important might be needed for bg
+            codeTagProps={{style: {fontFamily: 'var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace'}}}
           >
             {code}
           </SyntaxHighlighter>
         </div>
       );
-    } else {
+    } else { // ---BEGIN_FILE--- block
       const fileName = match[4].trim();
       const fileContent = match[5].trim();
       const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex++}`;
       let mimeType = 'text/plain';
       if (fileName.endsWith('.md')) mimeType = 'text/markdown';
       else if (fileName.endsWith('.txt')) mimeType = 'text/plain';
+      // Add more mime types if needed
 
       elements.push(
           <div key={fileKey} className="my-2">
@@ -698,7 +693,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
               alt={message.role === 'user' ? "Fichier de l'utilisateur" : "Média généré"}
               width={isUserMessage ? 300 : 350}
               height={isUserMessage ? 300 : 350}
-              className="rounded-lg object-contain max-w-full h-auto border border-border/50 cursor-pointer hover:opacity-80 transition-opacity"
+              className="rounded-lg object-contain max-w-full h-auto border border-border/50 cursor-pointer hover:opacity-80 transition-opacity aspect-square"
               onClick={() => handlePreviewImage(part.imageDataUri as string)}
               data-ai-hint={isUserMessage ? "user uploaded media" : "generated media"}
             />
@@ -716,7 +711,8 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
           </div>
         );
       } else {
-        const fileNameFromPart = (part as any).file?.name || part.imageDataUri.substring(0,30) + "..."; // Fallback for AI generated files
+        // Attempt to get file name, fallback for AI generated files
+        const fileNameFromPart = (part as any).file?.name || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
@@ -948,3 +944,6 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
   </Card>
   );
 }
+
+
+    

@@ -189,12 +189,13 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
 
   const modelConfigTemperature = input.temperature ?? 0.7;
   console.log(`SACAI_FLOW: Calling ai.generateStream for model: googleai/gemini-2.0-flash-exp. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}`);
-  console.log("SACAI_FLOW: Messages being sent to API:", JSON.stringify(messagesForApi, null, 2));
+  // console.log("SACAI_FLOW: Messages being sent to API:", JSON.stringify(messagesForApi, null, 2));
 
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
       try {
+        console.log("SACAI_FLOW: Stream generation starting...");
         const { stream: genkitStream, response: genkitResponsePromise } = ai.generateStream({
           model: 'googleai/gemini-2.0-flash-exp', // Using Gemini 2.0 Flash Experimental
           systemInstruction: {text: systemInstructionText},
@@ -222,11 +223,15 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             }
           }
           if (currentText) {
+            // console.log("SACAI_FLOW: Enqueuing text chunk:", currentText.substring(0, 50) + "...");
             controller.enqueue({ text: currentText });
           }
         }
 
+        console.log("SACAI_FLOW: Stream finished, awaiting final response promise.");
         const finalResponse = await genkitResponsePromise;
+        console.log("SACAI_FLOW: Final response received:", JSON.stringify(finalResponse, null, 2).substring(0, 500) + "...");
+
         if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates)) {
             if (finalResponse.candidates.length > 0) {
                 const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
@@ -262,7 +267,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
         } else if (typeof error === 'string') {
             errorMessage = error;
         }
-
+        console.log("SACAI_FLOW: Enqueuing error due to catch:", errorMessage);
         try {
           if (controller.desiredSize !== null && controller.desiredSize > 0) {
             controller.enqueue({ error: errorMessage });
@@ -271,6 +276,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
           console.error("SACAI_FLOW: Impossible d'envoyer l'erreur au client (flux probablement fermé après erreur initiale):", e);
         }
       } finally {
+        console.log("SACAI_FLOW: Stream processing finalized. Closing controller.");
         try {
           if (controller.desiredSize !== null && controller.desiredSize > 0) {
             controller.close();
@@ -282,3 +288,6 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     }
   });
 }
+
+
+    
