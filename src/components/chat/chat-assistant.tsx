@@ -166,10 +166,10 @@ export function ChatAssistant({
   useEffect(scrollToBottom, [messages, isLoading, scrollToBottom]);
 
   useEffect(() => {
-    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen ) {
+    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !moreOptionsMenuItems.some(item => document.getElementById(item.label)?.contains(document.activeElement)) ) {
       inputRef.current.focus();
     }
-  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId]);
+  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId, moreOptionsMenuItems]);
 
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -190,8 +190,13 @@ export function ChatAssistant({
           else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
           else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
           else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif';
-          else effectiveMimeType = 'application/octet-stream'; 
+          else {
+            console.warn(`Could not infer MIME type for ${file.name}, defaulting to application/octet-stream`);
+            effectiveMimeType = 'application/octet-stream'; 
+          }
         }
+        console.log(`File: ${file.name}, Original Type: ${file.type}, Effective Type: ${effectiveMimeType}`);
+
 
         const isAllowed = allowedMimeTypes.some(allowedType => {
             if (allowedType.endsWith('/*')) { 
@@ -234,7 +239,7 @@ export function ChatAssistant({
       });
     }
     if (event.target) {
-        event.target.value = '';
+        event.target.value = ''; // Reset file input
     }
   };
 
@@ -271,6 +276,8 @@ export function ChatAssistant({
       createdAt: Date.now() + 1,
     };
     
+    // Store the full set of messages before this interaction
+    const messagesBeforeThisInteraction = [...messages];
     setMessages(prev => [...prev, userPromptMessage, assistantPlaceholderMessage]);
     let finalAssistantMessage: ChatMessage | null = null;
 
@@ -280,7 +287,7 @@ export function ChatAssistant({
       if (result.imageUrl) {
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
+            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], // Assuming PNG for now
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
@@ -315,8 +322,7 @@ export function ChatAssistant({
     } finally {
       if (finalAssistantMessage) {
         setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
-        // Pass the full list of messages for this session for persistence
-        onMessagesUpdate([...initialMessages, userPromptMessage, finalAssistantMessage]);
+        onMessagesUpdate([...messagesBeforeThisInteraction, userPromptMessage, finalAssistantMessage]);
       }
       setIsLoading(false);
     }
@@ -342,9 +348,10 @@ export function ChatAssistant({
     }
 
     if (isImageRequestIntent) {
+      const capturedInputForImage = currentInputVal;
       setInput(''); 
       clearAllUploadedFiles();
-      await handleImageGeneration(currentInputVal);
+      await handleImageGeneration(capturedInputForImage);
       return;
     }
 
@@ -363,12 +370,6 @@ export function ChatAssistant({
 
     if (newUserMessageParts.length === 0) return;
     
-    const capturedInput = currentInputVal;
-    const capturedFiles = [...uploadedFiles];
-
-    setInput('');
-    clearAllUploadedFiles();
-
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}`, createdAt: Date.now() };
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
@@ -376,9 +377,13 @@ export function ChatAssistant({
 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     
+    // Store messages before this interaction
+    const messagesBeforeThisInteraction = [...messages]; 
     setMessages(prev => [...prev, newUserMessage, assistantPlaceholderMessage]);
+    setInput(''); // Clear input after constructing newUserMessage
+    clearAllUploadedFiles(); // Clear files after constructing newUserMessage
 
-    const historyForApi = [...initialMessages, newUserMessage]; // Use initialMessages prop as base
+    const historyForApi = [...messagesBeforeThisInteraction, newUserMessage];
     let finalAssistantMessageContent: ChatMessage | null = null;
     let accumulatedText = "";
 
@@ -440,10 +445,7 @@ export function ChatAssistant({
       };
     } finally {
       if (finalAssistantMessageContent) {
-        // Update local state for final display
-        setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? finalAssistantMessageContent! : msg));
-        // Call onMessagesUpdate once with the complete list for this interaction
-        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessageContent]);
+        onMessagesUpdate([...messagesBeforeThisInteraction, newUserMessage, finalAssistantMessageContent]);
       } else {
         const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
         const errorMsgForPersistence: ChatMessage = {
@@ -452,8 +454,7 @@ export function ChatAssistant({
           id: assistantMessageId,
           createdAt: Date.now()
         };
-        setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? errorMsgForPersistence : msg));
-        onMessagesUpdate([...initialMessages, newUserMessage, errorMsgForPersistence]);
+        onMessagesUpdate([...messagesBeforeThisInteraction, newUserMessage, errorMsgForPersistence]);
       }
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
@@ -721,7 +722,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
           </div>
         );
       } else {
-        const fileNameFromPart = (part as any).file?.name || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
+        const fileNameFromPart = (uploadedFiles.find(f => f.dataUri === part.imageDataUri)?.file.name) || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
@@ -757,6 +758,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
                         {moreOptionsMenuItems.map((item) => (
                             <Button
                                 key={item.label}
+                                id={item.label} // Added ID for focus management check
                                 variant="ghost"
                                 onClick={() => { item.action(); if (inputRef.current) inputRef.current.focus(); }}
                                 className="justify-start text-sm h-9"
@@ -772,7 +774,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 p-0 overflow-hidden min-h-0"> {/* Added min-h-0 */}
+      <CardContent className="flex-1 p-0 overflow-hidden min-h-0">
         <ScrollArea ref={scrollAreaRef} className="h-full bg-background/60 dark:bg-black/10">
           <div className="p-4 sm:p-6 space-y-6">
             {messages.length === 0 && !isLoading && (
@@ -780,8 +782,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
                 <SakaiLogo className="h-28 w-28 text-primary opacity-70 mb-4" data-ai-hint="logo large"/>
                 <p className="text-xl 2xl:text-2xl font-medium">Salut {currentUserName || "l'ami"} ! C'est Sakai.</p>
                 <p className="text-sm 2xl:text-base max-w-md">
-                  Comment puis-je t'aider aujourd'hui ?<br />
-                  Pose-moi une question, télécharge un fichier, ou utilise le bouton <Sparkles className="inline-block align-middle h-4 w-4 mx-0.5 text-primary"/> pour des actions rapides !
+                  Comment puis-je t'aider aujourd'hui ? Pose-moi une question, télécharge un fichier, ou utilise le bouton <Sparkles className="inline-block align-middle h-4 w-4 mx-0.5 text-primary"/> pour des actions rapides !
                 </p>
               </div>
             )}
@@ -956,3 +957,5 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
   </Card>
   );
 }
+
+
