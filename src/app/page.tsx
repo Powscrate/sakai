@@ -9,7 +9,7 @@ import { MemoryDialog } from '@/components/chat/memory-dialog';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
 import { generateChatTitle, type GenerateChatTitleOutput } from '@/ai/flows/generate-chat-title-flow';
 import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flows/generate-sakai-thought-flow'; 
-import { Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2, SlidersHorizontal, User as UserIconImport, Edit3 } from 'lucide-react'; // Renamed User to UserIconImport
+import { Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2, SlidersHorizontal, User as UserIconImport, Edit3 } from 'lucide-react'; 
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input"; 
 import {
@@ -176,7 +176,7 @@ export default function ChatPage() {
 
 
   useEffect(() => {
-    if (!pageIsMounted || !currentUser || authLoading) return;
+    if (!pageIsMounted || authLoading || !currentUser) return;
 
     const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
 
@@ -186,51 +186,61 @@ export default function ChatPage() {
       setActiveChatId(currentSessions.sort((a,b) => b.createdAt - a.createdAt)[0]?.id || null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, currentUser, authLoading, handleNewChat, router]); // Removed chatSessions, activeChatId, setActiveChatId from deps to ensure this focuses on user/auth state changes
+  }, [pageIsMounted, currentUser, authLoading, handleNewChat]); // router, chatSessions, activeChatId removed to narrow focus
 
   const activeChatMessages = chatSessions.find(session => session.id === activeChatId)?.messages || [];
 
   const handleMessagesUpdate = async (updatedMessages: ChatMessage[]) => {
     if (!currentUser || !activeChatId) return;
-
-    setChatSessions(prevSessions =>
-      prevSessions.map(session => {
-        if (session.id === activeChatId) {
-          if ((session.title === "Nouveau Chat" || session.title === "Nouvelle Discussion") && updatedMessages.length >= 1 && !isGeneratingTitle) {
-            const firstUserMessage = updatedMessages.find(m => m.role === 'user');
-            if (firstUserMessage) {
-                 setIsGeneratingTitle(true);
-                 const contextMessages = updatedMessages
-                    .slice(0, 2) 
-                    .map(msg => ({
-                        role: msg.role,
-                        parts: msg.parts.filter(part => part.type === 'text').map(part => ({type: 'text' as 'text', text: part.text}))
-                    }))
-                    .filter(msg => msg.parts.length > 0);
-
-                if (contextMessages.length > 0) {
-                    generateChatTitle({ messages: contextMessages })
-                    .then((titleOutput: GenerateChatTitleOutput) => {
-                        if (titleOutput.title) {
-                           setChatSessions(prev => prev.map(s => s.id === activeChatId ? { ...s, title: titleOutput.title } : s));
-                        }
-                        if (titleOutput.error) {
-                            console.warn("Error generating chat title:", titleOutput.error);
-                        }
-                    })
-                    .catch(err => console.error("Error generating chat title:", err))
-                    .finally(() => setIsGeneratingTitle(false));
-                } else {
-                    setIsGeneratingTitle(false); 
-                }
+  
+    // 1. Update messages for the current session
+    const updatedSessionsWithMessageData = chatSessions.map(session => {
+      if (session.id === activeChatId) {
+        return { ...session, messages: updatedMessages };
+      }
+      return session;
+    });
+    setChatSessions(updatedSessionsWithMessageData);
+  
+    // 2. Conditionally generate title for the new session
+    const currentSession = updatedSessionsWithMessageData.find(s => s.id === activeChatId);
+    if (currentSession && (currentSession.title === "Nouveau Chat" || currentSession.title === "Nouvelle Discussion") && updatedMessages.length > 0 && !isGeneratingTitle) {
+      const firstUserMessage = updatedMessages.find(m => m.role === 'user');
+      if (firstUserMessage) {
+        setIsGeneratingTitle(true);
+        const contextMessages = updatedMessages
+          .slice(0, 2)
+          .map(msg => ({
+            role: msg.role,
+            parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
+          }))
+          .filter(msg => msg.parts.length > 0);
+  
+        if (contextMessages.length > 0) {
+          try {
+            const titleOutput: GenerateChatTitleOutput = await generateChatTitle({ messages: contextMessages });
+            if (titleOutput.title) {
+              setChatSessions(prevSessions =>
+                prevSessions.map(s =>
+                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s
+                )
+              );
             }
+            if (titleOutput.error) {
+              console.warn("Error generating chat title:", titleOutput.error);
+            }
+          } catch (err) {
+            console.error("Error in generateChatTitle call:", err);
+          } finally {
+            setIsGeneratingTitle(false);
           }
-          return { ...session, messages: updatedMessages };
+        } else {
+          setIsGeneratingTitle(false);
         }
-        return session;
-      })
-    );
+      }
+    }
   };
+  
 
   const handleRenameChat = (chatId: string, newTitle: string) => {
     if (!currentUser || !newTitle.trim()) return;
@@ -258,11 +268,9 @@ export default function ChatPage() {
                 setActiveChatId(updatedSessions.sort((a,b) => b.createdAt - a.createdAt)[0].id);
             } else {
                 setActiveChatId(null); 
-                 // Automatically create a new chat if all chats are deleted
                 setTimeout(handleNewChat, 0);
             }
         }
-        // If sessions are empty after delete, create new chat
         if (updatedSessions.length === 0 && activeChatId !== idToDelete) {
           setTimeout(handleNewChat, 0);
         }
@@ -275,10 +283,7 @@ export default function ChatPage() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      // currentUser will be set to null by onAuthStateChanged, triggering redirection
-      // Clear user-specific localStorage data immediately.
-      
+      await signOut(auth);      
       setChatSessions([]);
       setActiveChatId(null);
       setUserMemory('');
@@ -291,7 +296,6 @@ export default function ChatPage() {
       setAiPersonality("Sakai (par défaut)");
 
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
-      // router.push('/auth/login'); // onAuthStateChanged handles this
     } catch (error) {
       console.error("Logout error:", error);
       toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
@@ -345,7 +349,6 @@ export default function ChatPage() {
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setTempIsDevSakaiAmbianceEnabled(false);
-    // Also reset the persisted values
     setDevOverrideSystemPrompt('');
     setDevModelTemperature(undefined);
     setIsDevSakaiAmbianceEnabled(false);
@@ -370,8 +373,6 @@ export default function ChatPage() {
     );
   }
 
-  // currentUser is checked by onAuthStateChanged, which redirects if null
-  // This check is an additional safeguard but might be redundant if redirection is fast
   if (!currentUser && pageIsMounted) {
      return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
@@ -422,7 +423,7 @@ export default function ChatPage() {
       <main className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
         currentUser ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72') : 'ml-0'
       }`}>
-        <div className="flex-1 w-full max-w-5xl mx-auto flex flex-col p-0 sm:p-4 md:p-6">
+        <div className="flex-1 w-full mx-auto flex flex-col p-0 sm:p-4 md:p-6"> {/* Removed max-w-5xl to allow full width */}
           {currentUser && activeChatId && (
             <ChatAssistant
               key={activeChatId} 
@@ -435,7 +436,6 @@ export default function ChatPage() {
               currentUserName={currentUser?.displayName}
               userAvatarUrl={userAvatarUrl}
               selectedPersonality={aiPersonality}
-              // Pass dialog openers
               onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
               onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
               onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
@@ -443,7 +443,7 @@ export default function ChatPage() {
               onOpenContactDialog={() => setIsContactDialogOpen(true)}
             />
           )}
-          {currentUser && !activeChatId && currentChatSessions.length > 0 && (
+          {currentUser && !activeChatId && currentChatSessions.length > 0 && pageIsMounted && (
              <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4">
               <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
                <p>Sélection d'un chat...</p>

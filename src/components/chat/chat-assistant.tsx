@@ -1,4 +1,3 @@
-
 // src/components/chat/chat-assistant.tsx
 "use client";
 
@@ -24,11 +23,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart, AIPersonality } from '@/ai/flows/chat-assistant-flow';
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
@@ -150,9 +154,12 @@ export function ChatAssistant({
         setMessages(initialMessages);
         setInput('');
         setUploadedFiles([]);
-        if (inputRef.current) inputRef.current.focus();
+        if (inputRef.current && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"]')) {
+           inputRef.current.focus();
+        }
     }
-  }, [activeChatId, initialMessages]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId, initialMessages]); // Keep initialMessages to reset if it changes for the activeChatId
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -166,16 +173,17 @@ export function ChatAssistant({
   useEffect(scrollToBottom, [messages, isLoading, scrollToBottom]);
 
   useEffect(() => {
-    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !moreOptionsMenuItems.some(item => document.getElementById(item.label)?.contains(document.activeElement)) ) {
+    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"]')) {
       inputRef.current.focus();
     }
-  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId, moreOptionsMenuItems]);
+  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId]);
 
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
       const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf', 'text/plain', 'text/markdown'];
+      const currentFiles: UploadedFileWrapper[] = [];
       
       Array.from(files).forEach(file => {
         const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
@@ -195,9 +203,7 @@ export function ChatAssistant({
             effectiveMimeType = 'application/octet-stream'; 
           }
         }
-        console.log(`File: ${file.name}, Original Type: ${file.type}, Effective Type: ${effectiveMimeType}`);
-
-
+        
         const isAllowed = allowedMimeTypes.some(allowedType => {
             if (allowedType.endsWith('/*')) { 
                 return effectiveMimeType.startsWith(allowedType.slice(0, -2));
@@ -276,8 +282,6 @@ export function ChatAssistant({
       createdAt: Date.now() + 1,
     };
     
-    // Store the full set of messages before this interaction
-    const messagesBeforeThisInteraction = [...messages];
     setMessages(prev => [...prev, userPromptMessage, assistantPlaceholderMessage]);
     let finalAssistantMessage: ChatMessage | null = null;
 
@@ -287,7 +291,7 @@ export function ChatAssistant({
       if (result.imageUrl) {
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], // Assuming PNG for now
+            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
@@ -322,7 +326,7 @@ export function ChatAssistant({
     } finally {
       if (finalAssistantMessage) {
         setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
-        onMessagesUpdate([...messagesBeforeThisInteraction, userPromptMessage, finalAssistantMessage]);
+        onMessagesUpdate([...messages.filter(m => m.id !== imageGenPlaceholderId && m.id !== imageGenUserMessageId), userPromptMessage, finalAssistantMessage]);
       }
       setIsLoading(false);
     }
@@ -370,20 +374,23 @@ export function ChatAssistant({
 
     if (newUserMessageParts.length === 0) return;
     
-    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: `user-${Date.now()}`, createdAt: Date.now() };
+    const userMessageId = `user-${Date.now()}`;
+    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
+    
     const assistantMessageId = `model-${Date.now()}`;
     setCurrentStreamingMessageId(assistantMessageId);
     setIsLoading(true);
 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     
-    // Store messages before this interaction
-    const messagesBeforeThisInteraction = [...messages]; 
+    // Update local state for immediate display
     setMessages(prev => [...prev, newUserMessage, assistantPlaceholderMessage]);
-    setInput(''); // Clear input after constructing newUserMessage
-    clearAllUploadedFiles(); // Clear files after constructing newUserMessage
+    
+    // Clear input fields AFTER capturing their values for newUserMessage
+    setInput(''); 
+    clearAllUploadedFiles();
 
-    const historyForApi = [...messagesBeforeThisInteraction, newUserMessage];
+    const historyForApi = [...initialMessages, newUserMessage]; // Use initialMessages from props + the new user message
     let finalAssistantMessageContent: ChatMessage | null = null;
     let accumulatedText = "";
 
@@ -445,8 +452,9 @@ export function ChatAssistant({
       };
     } finally {
       if (finalAssistantMessageContent) {
-        onMessagesUpdate([...messagesBeforeThisInteraction, newUserMessage, finalAssistantMessageContent]);
+        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessageContent]);
       } else {
+        // Fallback if finalAssistantMessageContent is null for some reason but streaming happened
         const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
         const errorMsgForPersistence: ChatMessage = {
           role: 'model',
@@ -454,7 +462,7 @@ export function ChatAssistant({
           id: assistantMessageId,
           createdAt: Date.now()
         };
-        onMessagesUpdate([...messagesBeforeThisInteraction, newUserMessage, errorMsgForPersistence]);
+        onMessagesUpdate([...initialMessages, newUserMessage, errorMsgForPersistence]);
       }
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
@@ -758,7 +766,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
                         {moreOptionsMenuItems.map((item) => (
                             <Button
                                 key={item.label}
-                                id={item.label} // Added ID for focus management check
+                                id={item.label} 
                                 variant="ghost"
                                 onClick={() => { item.action(); if (inputRef.current) inputRef.current.focus(); }}
                                 className="justify-start text-sm h-9"
@@ -774,7 +782,7 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 p-0 overflow-hidden min-h-0">
+      <CardContent className="flex-1 p-0 overflow-hidden min-h-0"> {/* Ensure min-h-0 for flex child */}
         <ScrollArea ref={scrollAreaRef} className="h-full bg-background/60 dark:bg-black/10">
           <div className="p-4 sm:p-6 space-y-6">
             {messages.length === 0 && !isLoading && (
@@ -957,5 +965,3 @@ const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
   </Card>
   );
 }
-
-
