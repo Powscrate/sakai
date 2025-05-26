@@ -17,11 +17,9 @@ export default function RootLayout({
   return (
     <html lang="fr" className={GeistSans.variable} suppressHydrationWarning>
       <body className="antialiased"> {/* Tailwind's antialiased class */}
-        <div> {/* Simple wrapper div */}
-          <ClientLayoutWrapper>
-            {children}
-          </ClientLayoutWrapper>
-        </div>
+        <ClientLayoutWrapper>
+          {children}
+        </ClientLayoutWrapper>
       </body>
     </html>
   );
