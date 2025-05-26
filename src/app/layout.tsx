@@ -1,7 +1,7 @@
-
 import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import './globals.css';
+// AppShell and Toaster will be rendered by ClientLayoutWrapper, ThemeProvider too.
 import { ClientLayoutWrapper } from '@/components/layout/client-layout-wrapper';
 
 export const metadata: Metadata = {
