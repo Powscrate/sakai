@@ -7,6 +7,7 @@ import '@/ai/flows/generate-image-flow.ts';
 import '@/ai/flows/generate-chat-title-flow.ts'; 
 import '@/ai/flows/generate-login-thought-flow.ts';
 import '@/ai/flows/generate-sakai-thought-flow.ts';
+import '@/ai/tools/web-search-tool.ts'; // Ajout de l'outil de recherche web
 
 // Removed flows:
 // analyze-image-flow.ts (merged into chat-assistant)

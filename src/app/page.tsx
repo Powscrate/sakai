@@ -13,7 +13,7 @@ import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flow
 import {
   Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2,
   SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose,
-  Mail, Plane, Lightbulb, Languages, ImageIcon, Laugh, Sparkles
+  Mail, Plane, Lightbulb, Languages, ImageIcon, Laugh, Sparkles, Globe, Bot as DeepSakaiIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
@@ -29,8 +29,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from '@/hooks/use-toast';
-import { auth, googleProvider } from '@/lib/firebase';
-import { onAuthStateChanged, signOut, User as FirebaseUser, signInWithPopup } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
 import { ThemeToggleButton } from '@/components/chat/theme-toggle-button';
@@ -58,6 +58,9 @@ const getDevModelTemperatureKey = (userId: string | undefined) => userId ? `saka
 const getSidebarCollapsedKey = (userId: string | undefined) => userId ? `sakaiSidebarCollapsed_v1_${userId}` : `sakaiSidebarCollapsed_v1_fallback`;
 const getDevSakaiAmbianceEnabledKey = (userId: string | undefined) => userId ? `sakaiDevAmbianceEnabled_${userId}` : 'sakaiDevAmbianceEnabled_fallback';
 const getAiPersonalityKey = (userId: string | undefined) => userId ? `sakaiAiPersonality_${userId}` : 'sakaiAiPersonality_fallback';
+const getWebSearchEnabledKey = (userId: string | undefined) => userId ? `sakaiWebSearchEnabled_${userId}` : 'sakaiWebSearchEnabled_fallback';
+const getDeepSakaiEnabledKey = (userId: string | undefined) => userId ? `sakaiDeepSakaiEnabled_${userId}` : 'sakaiDeepSakaiEnabled_fallback';
+
 
 const DEV_ACCESS_CODE = "1234566";
 
@@ -73,9 +76,13 @@ export default function ChatPage() {
   const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
   const [userAvatarUrl, setUserAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
   const [userMemory, setUserMemory] = useLocalStorage<string>(getUserMemoryKey(currentUser?.uid), '');
+  
   const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>(getDevOverrideSystemPromptKey(currentUser?.uid), '');
   const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
   const [isDevSakaiAmbianceEnabled, setIsDevSakaiAmbianceEnabled] = useLocalStorage<boolean>(getDevSakaiAmbianceEnabledKey(currentUser?.uid), false);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useLocalStorage<boolean>(getWebSearchEnabledKey(currentUser?.uid), false);
+  const [isDeepSakaiEnabled, setIsDeepSakaiEnabled] = useLocalStorage<boolean>(getDeepSakaiEnabledKey(currentUser?.uid), false);
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>(getSidebarCollapsedKey(currentUser?.uid), false);
   const [aiPersonality, setAiPersonality] = useLocalStorage<AIPersonality>(getAiPersonalityKey(currentUser?.uid), "Sakai (par défaut)");
 
@@ -89,9 +96,13 @@ export default function ChatPage() {
   const [isDevCodePromptOpen, setIsDevCodePromptOpen] = useState(false);
   const [devCodeInput, setDevCodeInput] = useState('');
   const [isDevSettingsOpen, setIsDevSettingsOpen] = useState(false);
+  
   const [tempOverrideSystemPrompt, setTempOverrideSystemPrompt] = useState('');
   const [tempModelTemperature, setTempModelTemperature] = useState(0.7);
   const [tempIsDevSakaiAmbianceEnabled, setTempIsDevSakaiAmbianceEnabled] = useState(false);
+  const [tempIsWebSearchEnabled, setTempIsWebSearchEnabled] = useState(false);
+  const [tempIsDeepSakaiEnabled, setTempIsDeepSakaiEnabled] = useState(false);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
 
@@ -119,20 +130,24 @@ export default function ChatPage() {
         localStorage.removeItem(getSidebarCollapsedKey(currentUser?.uid));
         localStorage.removeItem(getDevSakaiAmbianceEnabledKey(currentUser?.uid));
         localStorage.removeItem(getAiPersonalityKey(currentUser?.uid));
+        localStorage.removeItem(getWebSearchEnabledKey(currentUser?.uid));
+        localStorage.removeItem(getDeepSakaiEnabledKey(currentUser?.uid));
         router.push('/auth/login');
       }
     });
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, router]); // currentUser?.uid is implicitly handled by its effect on localStorage keys
+  }, [pageIsMounted, router]);
 
   useEffect(() => {
     if (pageIsMounted && currentUser && !authLoading) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
       setTempModelTemperature(devModelTemperature ?? 0.7);
       setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
+      setTempIsWebSearchEnabled(isWebSearchEnabled);
+      setTempIsDeepSakaiEnabled(isDeepSakaiEnabled);
     }
-  }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, pageIsMounted, currentUser, authLoading]);
+  }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, isWebSearchEnabled, isDeepSakaiEnabled, pageIsMounted, currentUser, authLoading]);
 
   const fetchSakaiThought = useCallback(async () => {
     if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return;
@@ -179,22 +194,30 @@ export default function ChatPage() {
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
   }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
 
+  // Effect for initializing chats or redirecting
   useEffect(() => {
-    if (!pageIsMounted || authLoading || !currentUser) return;
+    if (!pageIsMounted || authLoading) return;
+
+    if (!currentUser) {
+      router.push('/auth/login');
+      return;
+    }
 
     const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
 
     if (currentSessions.length === 0) {
       handleNewChat();
     } else if (!activeChatId || !currentSessions.find(s => s.id === activeChatId)) {
-      const sortedSessions = currentSessions.sort((a, b) => b.createdAt - a.createdAt);
+      const sortedSessions = [...currentSessions].sort((a, b) => b.createdAt - a.createdAt);
       setActiveChatId(sortedSessions[0]?.id || null);
     }
-  }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageIsMounted, currentUser, authLoading, router, handleNewChat]);
 
 
-  const handleMessagesUpdate = useCallback(async (updatedMessages: ChatMessage[]) => {
+  const handleMessagesUpdate = useCallback((updatedMessages: ChatMessage[]) => {
     if (!currentUser || !activeChatId) return;
+
     setChatSessions(prevSessions =>
       prevSessions.map(session =>
         session.id === activeChatId
@@ -204,7 +227,7 @@ export default function ChatPage() {
     );
   }, [currentUser, activeChatId, setChatSessions]);
 
-  // useEffect for generating chat title
+  // useEffect for generating chat title (runs after messages are updated and persisted)
   useEffect(() => {
     if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted) return;
 
@@ -212,7 +235,7 @@ export default function ChatPage() {
 
     if (activeSession && (activeSession.title === "Nouveau Chat" || activeSession.title === "Nouvelle Discussion") && activeSession.messages.length > 0) {
       const contextMessages = activeSession.messages
-        .slice(0, 2) // Use first two messages for context
+        .slice(0, 2)
         .map(msg => ({
           role: msg.role,
           parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
@@ -231,6 +254,7 @@ export default function ChatPage() {
               );
             } else if (titleOutput.error) {
               console.warn("Error generating chat title:", titleOutput.error);
+              // Optionally, keep the default title or set a generic one
             }
           })
           .catch(err => {
@@ -260,19 +284,17 @@ export default function ChatPage() {
     setEditingChatTitle(chat.title);
   };
 
-  const handleDeleteChat = async (idToDelete: string) => {
+  const handleDeleteChat = (idToDelete: string) => {
     if (!currentUser) return;
     setChatSessions(prevSessions => {
       const updatedSessions = prevSessions.filter(s => s.id !== idToDelete);
       if (activeChatId === idToDelete) {
         if (updatedSessions.length > 0) {
-          setActiveChatId(updatedSessions.sort((a, b) => b.createdAt - a.createdAt)[0].id);
+          setActiveChatId([...updatedSessions].sort((a, b) => b.createdAt - a.createdAt)[0].id);
         } else {
-          setActiveChatId(null);
-          // No need to call handleNewChat here, the useEffect for empty sessions will handle it
+          setActiveChatId(null); // This will trigger handleNewChat in the useEffect
         }
       }
-      // If all chats are deleted, the useEffect for empty sessions will create a new one.
       return updatedSessions;
     });
     toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
@@ -282,7 +304,7 @@ export default function ChatPage() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // currentUser will become null via onAuthStateChanged, triggering redirection and clearing specific user data
+      // currentUser will become null via onAuthStateChanged, triggering redirection
       // For immediate UI update and to be safe, reset states:
       setChatSessions([]);
       setActiveChatId(null);
@@ -294,8 +316,10 @@ export default function ChatPage() {
       setSakaiCurrentThought(null);
       setUserAvatarUrl('');
       setAiPersonality("Sakai (par défaut)");
+      setIsWebSearchEnabled(false);
+      setIsDeepSakaiEnabled(false);
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
-      // Redirection is handled by onAuthStateChanged
+      // Redirection is handled by onAuthStateChanged effect.
     } catch (error) {
       console.error("Logout error:", error);
       toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
@@ -315,6 +339,8 @@ export default function ChatPage() {
         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
         setTempModelTemperature(devModelTemperature ?? 0.7);
         setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
+        setTempIsWebSearchEnabled(isWebSearchEnabled);
+        setTempIsDeepSakaiEnabled(isDeepSakaiEnabled);
       }
       setIsDevSettingsOpen(true);
       toast({ title: "Accès Développeur Accordé" });
@@ -328,6 +354,8 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
+    setIsWebSearchEnabled(tempIsWebSearchEnabled);
+    setIsDeepSakaiEnabled(tempIsDeepSakaiEnabled);
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
@@ -336,9 +364,14 @@ export default function ChatPage() {
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setTempIsDevSakaiAmbianceEnabled(false);
+    setTempIsWebSearchEnabled(false);
+    setTempIsDeepSakaiEnabled(false);
+    
     setDevOverrideSystemPrompt('');
     setDevModelTemperature(undefined);
     setIsDevSakaiAmbianceEnabled(false);
+    setIsWebSearchEnabled(false);
+    setIsDeepSakaiEnabled(false);
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
@@ -348,7 +381,6 @@ export default function ChatPage() {
   const activeChat = chatSessions.find(session => session.id === activeChatId);
   const sortedChatSessions = [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
 
-  // Loader for initial page mount and auth check
   if (!pageIsMounted || authLoading) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
@@ -358,8 +390,6 @@ export default function ChatPage() {
     );
   }
 
-  // If no user after auth check (and page is mounted), redirection is handled by onAuthStateChanged.
-  // This is a fallback or state during the brief moment before redirection.
   if (!currentUser) {
      return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
@@ -412,7 +442,7 @@ export default function ChatPage() {
       <main className={`flex-1 flex flex-col relative overflow-hidden bg-background dark:bg-black/20 transition-all duration-300 ease-in-out ${
         isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
       }`}>
-        {/* Fixed Topbar */}
+        {/* Topbar Fixe */}
         <div className={`fixed top-0 right-0 h-16 bg-card/80 backdrop-blur-md border-b border-border/70
                          flex items-center justify-between px-6 z-20
                          ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
@@ -446,59 +476,77 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* ChatAssistant rendering logic */}
-        {activeChatId && activeChat ? (
-          <ChatAssistant
-            key={activeChatId}
-            initialMessages={activeChatMessages}
-            onMessagesUpdate={handleMessagesUpdate}
-            userMemory={userMemory}
-            devOverrideSystemPrompt={devOverrideSystemPrompt}
-            devModelTemperature={devModelTemperature}
-            activeChatId={activeChatId}
-            currentUserName={currentUser?.displayName}
-            userAvatarUrl={userAvatarUrl}
-            selectedPersonality={aiPersonality}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
-            {sortedChatSessions.length > 0 ? (
-              <>
-                <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-                <p>Sélection d'un chat...</p>
-              </>
+        {/* Zone de Messages Défilable (avec padding pour topbar/inputbar) */}
+        <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: '6rem' }}> {/* Approx 64px top, 96px bottom */}
+            {activeChatId && activeChat ? (
+            <ChatAssistant
+                key={activeChatId} // Important pour réinitialiser l'état de ChatAssistant si l'ID change
+                initialMessages={activeChatMessages}
+                onMessagesUpdate={handleMessagesUpdate}
+                userMemory={userMemory}
+                devOverrideSystemPrompt={devOverrideSystemPrompt}
+                devModelTemperature={devModelTemperature}
+                activeChatId={activeChatId}
+                currentUserName={currentUser?.displayName}
+                userAvatarUrl={userAvatarUrl}
+                selectedPersonality={aiPersonality}
+                isWebSearchEnabled={isWebSearchEnabled}
+                isDeepSakaiEnabled={isDeepSakaiEnabled}
+            />
             ) : (
-              <>
-                <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
-                <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
-                <Button onClick={handleNewChat} className="mt-4">
-                  <Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat
-                </Button>
-              </>
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
+                {sortedChatSessions.length > 0 ? (
+                <>
+                    <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+                    <p>Sélection d'un chat...</p>
+                </>
+                ) : (
+                <>
+                    <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
+                    <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
+                    <Button onClick={handleNewChat} className="mt-4">
+                    <Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat
+                    </Button>
+                </>
+                )}
+            </div>
             )}
-          </div>
+        </div>
+        
+        {/* Zone de Saisie Fixe */}
+        {activeChatId && activeChat && (
+            <div className={`fixed bottom-0 right-0 border-t border-border/70 bg-card/80 backdrop-blur-md
+                            ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
+                            transition-all duration-300 ease-in-out z-20`}>
+                 {/* Le formulaire de ChatAssistant est géré par ChatAssistant lui-même,
+                 mais on pourrait aussi le rendre ici si on décomposait ChatAssistant */}
+            </div>
         )}
       </main>
 
       <MemoryDialog isOpen={isMemoryDialogOpen} onOpenChange={setIsMemoryDialogOpen} currentMemory={userMemory} onSaveMemory={handleSaveMemory} />
+      
       <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">Sakai est ton assistant IA personnel, gratuit mais puissant, toujours prêt à t'aider :<ul className="list-disc list-inside mt-2 space-y-1 text-sm"><li>Discuter de tout et de rien, répondre à tes questions.</li><li>Générer des images stylées à partir de tes descriptions.</li><li>Analyser les images, PDF, et fichiers texte que tu lui donnes (même plusieurs d'un coup !).</li><li>Raconter des blagues et des histoires pour te détendre.</li><li>T'aider à rédiger des emails, pitchs, poèmes, scripts...</li><li>Se souvenir de tes préférences grâce au Panneau de Mémoire.</li><li>Choisir sa personnalité (Développeur, Coach, Humoriste...).</li><li>Mode Développeur pour personnaliser son comportement et activer des surprises comme les "Pensées de Sakai".</li></ul><p className="mt-3 text-sm font-semibold">Sakai est là pour toi, prêt à rendre ton quotidien plus fun et productif !</p></AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">Sakai est ton assistant IA personnel, gratuit mais puissant, toujours prêt à t'aider :<ul className="list-disc list-inside mt-2 space-y-1 text-sm"><li>Discuter de tout et de rien, répondre à tes questions.</li><li>Générer des images stylées à partir de tes descriptions.</li><li>Analyser les images, PDF, et fichiers texte que tu lui donnes (même plusieurs d'un coup !).</li><li>Raconter des blagues et des histoires pour te détendre.</li><li>T'aider à rédiger des emails, pitchs, poèmes, scripts...</li><li>Se souvenir de tes préférences grâce au Panneau de Mémoire.</li><li>Choisir sa personnalité (Développeur, Coach, Humoriste...).</li><li>Mode Développeur pour personnaliser son comportement et activer des surprises comme les "Pensées de Sakai", le "Mode Web" (simulé) et le "Mode DeepSakai".</li></ul><p className="mt-3 text-sm font-semibold">Sakai est là pour toi, prêt à rendre ton quotidien plus fun et productif !</p></AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogAction onClick={() => setIsFeaturesDialogOpen(false)}>Compris !</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
       <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p className="mb-2">Sakai est une IA conversationnelle (pas un "modèle de langage"), codée par Tantely pour être ton partenaire IA cool et futé. Il est conçu pour être gratuit, puissant, et rendre ton quotidien plus simple et fun !</p><p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle pour t'offrir une expérience interactive et enrichissante.</p><p>Version: 3.10.0 (Avatars & Personnalités)</p><p className="mt-4 text-xs text-muted-foreground">© MAMPIONONTIAKO Tantely Etienne Théodore. Tous droits réservés.<br />Créateur & Développeur : MAMPIONONTIAKO Tantely Etienne Théodore</p></AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
       <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Contact className="h-5 w-5 text-primary"/>Contacter le développeur</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Tu peux contacter Tantely (le créateur de Sakai) via WhatsApp :</p><Button variant="link" asChild className="text-lg p-0 h-auto mt-2"><a href="https://wa.me/261343775058" target="_blank" rel="noopener noreferrer">+261 34 37 750 58</a></Button><p className="text-xs text-muted-foreground mt-3">Ou par email : <a href="mailto:tantely@gmail.com" className="underline">tantely@gmail.com</a></p></AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
       <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès pour modifier les paramètres avancés du modèle.</AlertDialogDescription></AlertDialogHeader>
@@ -506,17 +554,21 @@ export default function ChatPage() {
           <AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
       <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
         <DialogContent className="sm:max-w-[600px] bg-card">
           <DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis.</DialogDescription></DialogHeader>
           <div className="grid gap-6 py-4">
             <div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laisse vide pour utiliser l'invite système par défaut..." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée. La mémoire et la personnalité sont ajoutées après.</p></div>
             <div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Plus bas = plus factuel. Plus haut = plus créatif. (Défaut: 0.7)</p></div>
-            <div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai</Label></div><p className="text-xs text-muted-foreground -mt-3">Sakai partagera des pensées dans la sidebar.</p>
+            <div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (Pensées)</Label></div>
+            <div className="flex items-center space-x-2"><Switch id="dev-web-search" checked={tempIsWebSearchEnabled} onCheckedChange={setTempIsWebSearchEnabled}/><Label htmlFor="dev-web-search" className="text-sm font-medium">Activer le Mode Web (Simulé)</Label></div>
+            <div className="flex items-center space-x-2"><Switch id="dev-deep-sakai" checked={tempIsDeepSakaiEnabled} onCheckedChange={setTempIsDeepSakaiEnabled}/><Label htmlFor="dev-deep-sakai" className="text-sm font-medium">Activer le Mode DeepSakai</Label></div>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { if (pageIsMounted && currentUser) { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); } setIsDevSettingsOpen(false); }}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { if (pageIsMounted && currentUser) { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setTempIsWebSearchEnabled(isWebSearchEnabled); setTempIsDeepSakaiEnabled(isDeepSakaiEnabled); } setIsDevSettingsOpen(false); }}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+

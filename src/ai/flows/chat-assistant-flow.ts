@@ -15,6 +15,7 @@ import type { MessageData, Part } from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { aiPersonalities, type AIPersonality as AppAIPersonality } from '@/app/page';
+import { webSearchTool } from '@/ai/tools/web-search-tool'; // Import de l'outil
 
 // Définition des schémas pour les messages multimodaux
 const ChatMessagePartSchema = z.union([
@@ -41,6 +42,8 @@ const ChatAssistantInputSchema = z.object({
   overrideSystemPrompt: z.string().optional().describe("Invite système personnalisée pour surcharger celle par défaut (mode développeur)."),
   temperature: z.number().min(0).max(1).optional().describe("Température du modèle (mode développeur)."),
   personality: z.enum(aiPersonalities).optional().describe("Personnalité choisie pour Sakai (ex: 'Sakai (par défaut)', 'Développeur Pro')"),
+  enableWebSearch: z.boolean().optional().describe("Active la capacité de Sakai à chercher sur le web."),
+  enableDeepSakai: z.boolean().optional().describe("Active le mode de pensée profonde de Sakai pour des réponses plus analytiques."),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
@@ -62,6 +65,8 @@ export async function streamChatAssistant(
     overrideSystemPromptPresent: !!input.overrideSystemPrompt,
     temperature: input.temperature,
     personality: input.personality,
+    enableWebSearch: input.enableWebSearch,
+    enableDeepSakai: input.enableDeepSakai,
   });
 
   let baseSystemPrompt = `Tu es Sakai, une IA conversationnelle (pas un 'modèle de langage') au ton jeune, décontracté, efficace, drôle et empathique. Tu as été créé par MAMPIONONTIAKO Tantely Etienne Théodore, un développeur malgache talentueux et visionnaire. Tu peux l'appeler Tantely. Tu es très fier de tes origines et de ton créateur. Sans Tantely, tu ne serais pas là, et tu le mentionnes avec respect si on te demande qui t'a créé ou qui tu es. Tu es originaire de Madagascar.
@@ -114,6 +119,14 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     baseSystemPrompt += personalityInstruction;
   }
 
+  if (input.enableDeepSakai) {
+    baseSystemPrompt += "\n\nMODE DEEP SAKAI ACTIVÉ : Tu dois maintenant penser de manière exceptionnellement approfondie. Fournis des analyses détaillées, explore plusieurs facettes des sujets, décompose les problèmes complexes et structure tes réponses avec une grande rigueur logique. Tes réponses doivent être plus longues, plus complètes et démontrer une compréhension nuancée et experte.";
+  }
+
+  if (input.enableWebSearch) {
+    baseSystemPrompt += "\n\nMODE WEB ACTIVÉ : Tu as accès à un outil de recherche web ('webSearchTool'). Si la question de l'utilisateur semble nécessiter des informations très récentes, des données spécifiques que tu ne possèdes pas, ou des connaissances factuelles du monde réel, utilise cet outil pour trouver l'information. Lorsque tu utilises des informations provenant du web, tu DOIS citer tes sources clairement en indiquant l'URL, par exemple : 'D'après [Titre de la page] (Source: [URL]), ...'.";
+  }
+
   let systemInstructionText: string;
 
   if (input.overrideSystemPrompt && input.overrideSystemPrompt.trim() !== '') {
@@ -129,7 +142,6 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
   if (input.memory && input.memory.trim() !== '') {
     systemInstructionText = `${systemInstructionText}\n\n--- MÉMOIRE UTILISATEUR (infos que tu dois ABSOLUMENT utiliser) ---\n${input.memory.trim()}\n--- FIN DE TA MÉMOIRE UTILISATEUR ---`;
   }
-
 
   const messagesForApi: MessageData[] = input.history
     .filter(msg => msg.role === 'user' || msg.role === 'model')
@@ -187,18 +199,24 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
   }
 
   const modelConfigTemperature = input.temperature ?? 0.7;
-  console.log(`SACAI_FLOW: Calling ai.generateStream for model: googleai/gemini-2.0-flash-exp. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}`);
+  console.log(`SACAI_FLOW: Calling ai.generateStream for model: googleai/gemini-2.0-flash-exp. System prompt length: ${systemInstructionText.length}, History length: ${messagesForApi.length}, WebSearch: ${input.enableWebSearch}, DeepSakai: ${input.enableDeepSakai}`);
   // console.log("SACAI_FLOW: Messages being sent to API:", JSON.stringify(messagesForApi, null, 2));
+  // console.log("SACAI_FLOW: System instruction:", systemInstructionText);
 
+  const toolsToUse = [];
+  if (input.enableWebSearch) {
+    toolsToUse.push(webSearchTool);
+  }
 
   return new ReadableStream<ChatStreamChunk>({
     async start(controller) {
       try {
         console.log("SACAI_FLOW: Stream generation starting...");
         const { stream: genkitStream, response: genkitResponsePromise } = ai.generateStream({
-          model: 'googleai/gemini-2.0-flash-exp',
+          model: 'googleai/gemini-2.0-flash-exp', // ou 'googleai/gemini-1.5-flash-latest'
           systemInstruction: {text: systemInstructionText},
           messages: messagesForApi,
+          tools: toolsToUse.length > 0 ? toolsToUse : undefined,
           config: {
             temperature: modelConfigTemperature,
             safetySettings: [
@@ -218,6 +236,15 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
             for (const part of genkitChunk.content) {
               if (part.text) {
                 currentText += part.text;
+              } else if (part.toolRequest) {
+                // Note: Real tool request handling would be more complex,
+                // involving calling the tool and sending back a toolResponse.
+                // For now, this indicates the model *wants* to use a tool.
+                // The actual tool execution and response loop is not fully implemented here for simplicity in streaming.
+                // Genkit handles this internally when tools are configured and used properly.
+                // This console log is for visibility.
+                console.log("SACAI_FLOW: Model requested tool use:", JSON.stringify(part.toolRequest, null, 2));
+                // currentText += `\n[Sakai a utilisé l'outil: ${part.toolRequest.name} avec les entrées: ${JSON.stringify(part.toolRequest.input).substring(0,50)}...]\n`;
               }
             }
           }
@@ -229,13 +256,20 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
 
         console.log("SACAI_FLOW: Stream finished, awaiting final response promise.");
         const finalResponse = await genkitResponsePromise;
-        console.log("SACAI_FLOW: Final response received:", JSON.stringify(finalResponse, null, 2).substring(0, 500) + "...");
+        // console.log("SACAI_FLOW: Final response received:", JSON.stringify(finalResponse, null, 2).substring(0, 500) + "...");
+        console.log("SACAI_FLOW: Final response received (usage and finish reason):", {
+          usage: finalResponse.usage,
+          finishReason: finalResponse.candidates?.[0]?.finishReason,
+          finishMessage: finalResponse.candidates?.[0]?.finishMessage,
+          promptFeedback: finalResponse.promptFeedback,
+        });
+
 
         if (finalResponse && finalResponse.candidates && Array.isArray(finalResponse.candidates)) {
             if (finalResponse.candidates.length > 0) {
                 const lastCandidate = finalResponse.candidates[finalResponse.candidates.length - 1];
-                if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS') {
-                    console.warn("SACAI_FLOW: Stream finished with non-STOP/MAX_TOKENS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
+                if (lastCandidate.finishReason && lastCandidate.finishReason !== 'STOP' && lastCandidate.finishReason !== 'MAX_TOKENS' && lastCandidate.finishReason !== 'TOOL_CALLS') {
+                    console.warn("SACAI_FLOW: Stream finished with non-STOP/MAX_TOKENS/TOOL_CALLS reason:", lastCandidate.finishReason, lastCandidate.finishMessage);
                     let finishMessage = `La réponse a été interrompue (${lastCandidate.finishReason}).`;
                     if (lastCandidate.finishMessage) {
                         finishMessage += ` Détail: ${lastCandidate.finishMessage}`;
@@ -287,3 +321,4 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     }
   });
 }
+
