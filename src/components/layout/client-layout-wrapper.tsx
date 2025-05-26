@@ -25,7 +25,7 @@ export function ClientLayoutWrapper({ children }: ClientLayoutWrapperProps) {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="dark" // Ensures dark theme is applied by default
+      defaultTheme="dark" 
       enableSystem
       disableTransitionOnChange
     >
