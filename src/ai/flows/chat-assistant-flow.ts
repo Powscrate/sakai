@@ -1,4 +1,3 @@
-
 // src/ai/flows/chat-assistant-flow.ts
 'use server';
 /**
@@ -197,7 +196,7 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
       try {
         console.log("SACAI_FLOW: Stream generation starting...");
         const { stream: genkitStream, response: genkitResponsePromise } = ai.generateStream({
-          model: 'googleai/gemini-2.0-flash-exp', // Using Gemini 2.0 Flash Experimental
+          model: 'googleai/gemini-2.0-flash-exp',
           systemInstruction: {text: systemInstructionText},
           messages: messagesForApi,
           config: {
@@ -288,6 +287,3 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
     }
   });
 }
-
-
-    

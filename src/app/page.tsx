@@ -3,19 +3,20 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import NextImage from 'next/image'; // Pour l'avatar dans le topbar
+import NextImage from 'next/image';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
-import { ChatAssistant } from '@/components/chat/chat-assistant'; // Sera utilisé pour sa logique et le rendu des messages/input
+import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
 import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
 import { generateChatTitle, type GenerateChatTitleOutput } from '@/ai/flows/generate-chat-title-flow';
-import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flows/generate-sakai-thought-flow'; 
+import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flows/generate-sakai-thought-flow';
 import {
   Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2,
-  SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose
-} from 'lucide-react'; 
+  SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose,
+  Mail, Plane, Lightbulb, Languages, ImageIcon, Laugh, Sparkles
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from "@/components/ui/input"; 
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -26,9 +27,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch"; 
+import { Switch } from "@/components/ui/switch";
 import { useToast } from '@/hooks/use-toast';
-import { auth, googleProvider } from '@/lib/firebase'; 
+import { auth, googleProvider } from '@/lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser, signInWithPopup } from 'firebase/auth';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -38,18 +39,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export const aiPersonalities = ["Sakai (par défaut)", "Développeur Pro", "Coach Bienveillant", "Humoriste Décalé"] as const;
-export type AIPersonality = typeof aiPersonalities[number];
+export type AIPersonality = (typeof aiPersonalities)[number];
 
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: number; 
-  userId: string; 
+  createdAt: number;
+  userId: string;
   messages: ChatMessage[];
 }
 
-const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v3_${userId}` : `sakaiChatSessions_v3_fallback_key_no_user`;
-const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v3_${userId}` : `sakaiActiveChatId_v3_fallback_key_no_user`;
+const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v3_${userId}` : `sakaiChatSessions_v3_fallback_no_user`;
+const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v3_${userId}` : `sakaiActiveChatId_v3_fallback_no_user`;
 const getUserAvatarKey = (userId: string | undefined) => userId ? `sakaiUserAvatar_${userId}` : 'sakaiUserAvatar_fallback';
 const getUserMemoryKey = (userId: string | undefined) => userId ? `sakaiUserMemory_${userId}` : 'sakaiUserMemory_fallback';
 const getDevOverrideSystemPromptKey = (userId: string | undefined) => userId ? `sakaiDevOverrideSystemPrompt_${userId}` : 'sakaiDevOverrideSystemPrompt_fallback';
@@ -67,7 +68,7 @@ export default function ChatPage() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  
+
   const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
   const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
   const [userAvatarUrl, setUserAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
@@ -76,8 +77,8 @@ export default function ChatPage() {
   const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
   const [isDevSakaiAmbianceEnabled, setIsDevSakaiAmbianceEnabled] = useLocalStorage<boolean>(getDevSakaiAmbianceEnabledKey(currentUser?.uid), false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>(getSidebarCollapsedKey(currentUser?.uid), false);
-  const [aiPersonality, setAiPersonality] = useLocalStorage<AIPersonality>(getAiPersonalityKey(currentUser?.uid) as string, "Sakai (par défaut)");
-  
+  const [aiPersonality, setAiPersonality] = useLocalStorage<AIPersonality>(getAiPersonalityKey(currentUser?.uid), "Sakai (par défaut)");
+
   const [sakaiCurrentThought, setSakaiCurrentThought] = useState<string | null>(null);
   const thoughtIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -98,29 +99,40 @@ export default function ChatPage() {
   const [editingChatTitle, setEditingChatTitle] = useState('');
 
   useEffect(() => {
-    setPageIsMounted(true); 
+    setPageIsMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!pageIsMounted) return; 
+    if (!pageIsMounted) return;
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
       if (!user) {
+        // Clear user-specific localStorage items on logout or if no user
+        localStorage.removeItem(getChatSessionsKey(currentUser?.uid));
+        localStorage.removeItem(getActiveChatIdKey(currentUser?.uid));
+        localStorage.removeItem(getUserAvatarKey(currentUser?.uid));
+        localStorage.removeItem(getUserMemoryKey(currentUser?.uid));
+        localStorage.removeItem(getDevOverrideSystemPromptKey(currentUser?.uid));
+        localStorage.removeItem(getDevModelTemperatureKey(currentUser?.uid));
+        localStorage.removeItem(getSidebarCollapsedKey(currentUser?.uid));
+        localStorage.removeItem(getDevSakaiAmbianceEnabledKey(currentUser?.uid));
+        localStorage.removeItem(getAiPersonalityKey(currentUser?.uid));
         router.push('/auth/login');
       }
     });
     return () => unsubscribe();
-  }, [pageIsMounted, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageIsMounted, router]); // currentUser?.uid is implicitly handled by its effect on localStorage keys
 
   useEffect(() => {
-    if (pageIsMounted && currentUser) {
+    if (pageIsMounted && currentUser && !authLoading) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
       setTempModelTemperature(devModelTemperature ?? 0.7);
       setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
     }
-  }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, pageIsMounted, currentUser]);
+  }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, pageIsMounted, currentUser, authLoading]);
 
   const fetchSakaiThought = useCallback(async () => {
     if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return;
@@ -140,12 +152,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (isDevSakaiAmbianceEnabled && pageIsMounted && currentUser) {
-      fetchSakaiThought(); 
+      fetchSakaiThought();
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000); 
+      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000);
     } else {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      setSakaiCurrentThought(null); 
+      setSakaiCurrentThought(null);
     }
     return () => {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
@@ -157,45 +169,50 @@ export default function ChatPage() {
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
       id: newChatId,
-      title: "Nouveau Chat", 
+      title: "Nouveau Chat",
       createdAt: Date.now(),
       userId: currentUser.uid,
       messages: [],
     };
-    setChatSessions(prevSessions => [newChatSession, ...prevSessions].sort((a,b) => b.createdAt - a.createdAt));
+    setChatSessions(prevSessions => [newChatSession, ...prevSessions].sort((a, b) => b.createdAt - a.createdAt));
     setActiveChatId(newChatId);
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
   }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
 
   useEffect(() => {
-    if (authLoading || !pageIsMounted || !currentUser) return;
+    if (!pageIsMounted || authLoading || !currentUser) return;
 
     const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
 
     if (currentSessions.length === 0) {
       handleNewChat();
     } else if (!activeChatId || !currentSessions.find(s => s.id === activeChatId)) {
-      setActiveChatId(currentSessions.sort((a,b) => b.createdAt - a.createdAt)[0]?.id || null);
+      const sortedSessions = currentSessions.sort((a, b) => b.createdAt - a.createdAt);
+      setActiveChatId(sortedSessions[0]?.id || null);
     }
-  }, [pageIsMounted, currentUser, authLoading, handleNewChat, chatSessions, activeChatId, setActiveChatId]);
+  }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
 
-  const activeChatMessages = chatSessions.find(session => session.id === activeChatId)?.messages || [];
 
   const handleMessagesUpdate = useCallback(async (updatedMessages: ChatMessage[]) => {
     if (!currentUser || !activeChatId) return;
+    setChatSessions(prevSessions =>
+      prevSessions.map(session =>
+        session.id === activeChatId
+          ? { ...session, messages: updatedMessages }
+          : session
+      )
+    );
+  }, [currentUser, activeChatId, setChatSessions]);
 
-    const updatedSessionsWithMessageData = chatSessions.map(session => {
-      if (session.id === activeChatId) {
-        return { ...session, messages: updatedMessages };
-      }
-      return session;
-    });
-    setChatSessions(updatedSessionsWithMessageData);
+  // useEffect for generating chat title
+  useEffect(() => {
+    if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted) return;
 
-    const currentSessionForTitle = updatedSessionsWithMessageData.find(s => s.id === activeChatId);
-    if (currentSessionForTitle && (currentSessionForTitle.title === "Nouveau Chat" || currentSessionForTitle.title === "Nouvelle Discussion") && updatedMessages.length > 0 && !isGeneratingTitle) {
-      const contextMessages = updatedMessages
-        .slice(0, 2) 
+    const activeSession = chatSessions.find(s => s.id === activeChatId);
+
+    if (activeSession && (activeSession.title === "Nouveau Chat" || activeSession.title === "Nouvelle Discussion") && activeSession.messages.length > 0) {
+      const contextMessages = activeSession.messages
+        .slice(0, 2) // Use first two messages for context
         .map(msg => ({
           role: msg.role,
           parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
@@ -204,26 +221,28 @@ export default function ChatPage() {
 
       if (contextMessages.length > 0) {
         setIsGeneratingTitle(true);
-        try {
-          const titleOutput: GenerateChatTitleOutput = await generateChatTitle({ messages: contextMessages });
-          if (titleOutput.title && !titleOutput.error) {
-            setChatSessions(prevSessions =>
-              prevSessions.map(s =>
-                s.id === activeChatId ? { ...s, title: titleOutput.title } : s
-              )
-            );
-          } else if (titleOutput.error) {
-            console.warn("Error generating chat title:", titleOutput.error);
-          }
-        } catch (err) {
-          console.error("Error in generateChatTitle call:", err);
-        } finally {
-          setIsGeneratingTitle(false);
-        }
+        generateChatTitle({ messages: contextMessages })
+          .then(titleOutput => {
+            if (titleOutput.title && !titleOutput.error) {
+              setChatSessions(prevSessions =>
+                prevSessions.map(s =>
+                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s
+                )
+              );
+            } else if (titleOutput.error) {
+              console.warn("Error generating chat title:", titleOutput.error);
+            }
+          })
+          .catch(err => {
+            console.error("Error in generateChatTitle API call:", err);
+          })
+          .finally(() => {
+            setIsGeneratingTitle(false);
+          });
       }
     }
-  }, [currentUser, activeChatId, chatSessions, setChatSessions, isGeneratingTitle, setIsGeneratingTitle]);
-  
+  }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, setChatSessions]);
+
 
   const handleRenameChat = (chatId: string, newTitle: string) => {
     if (!currentUser || !newTitle.trim()) return;
@@ -244,26 +263,27 @@ export default function ChatPage() {
   const handleDeleteChat = async (idToDelete: string) => {
     if (!currentUser) return;
     setChatSessions(prevSessions => {
-        const updatedSessions = prevSessions.filter(s => s.id !== idToDelete);
-        if (activeChatId === idToDelete) {
-            if (updatedSessions.length > 0) {
-                setActiveChatId(updatedSessions.sort((a,b) => b.createdAt - a.createdAt)[0].id);
-            } else {
-                setActiveChatId(null); 
-                setTimeout(handleNewChat, 0);
-            }
+      const updatedSessions = prevSessions.filter(s => s.id !== idToDelete);
+      if (activeChatId === idToDelete) {
+        if (updatedSessions.length > 0) {
+          setActiveChatId(updatedSessions.sort((a, b) => b.createdAt - a.createdAt)[0].id);
+        } else {
+          setActiveChatId(null);
+          // No need to call handleNewChat here, the useEffect for empty sessions will handle it
         }
-        if (updatedSessions.length === 0 && activeChatId !== idToDelete) {
-          setTimeout(handleNewChat, 0);
-        }
-        return updatedSessions;
+      }
+      // If all chats are deleted, the useEffect for empty sessions will create a new one.
+      return updatedSessions;
     });
     toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
   };
 
+
   const handleLogout = async () => {
     try {
-      await signOut(auth);      
+      await signOut(auth);
+      // currentUser will become null via onAuthStateChanged, triggering redirection and clearing specific user data
+      // For immediate UI update and to be safe, reset states:
       setChatSessions([]);
       setActiveChatId(null);
       setUserMemory('');
@@ -275,7 +295,7 @@ export default function ChatPage() {
       setUserAvatarUrl('');
       setAiPersonality("Sakai (par défaut)");
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
-      router.push('/auth/login'); // Explicit redirect after state reset
+      // Redirection is handled by onAuthStateChanged
     } catch (error) {
       console.error("Logout error:", error);
       toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
@@ -323,8 +343,13 @@ export default function ChatPage() {
   };
 
   const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev);
-  
-  if (authLoading || !pageIsMounted) { 
+
+  const activeChatMessages = chatSessions.find(session => session.id === activeChatId)?.messages || [];
+  const activeChat = chatSessions.find(session => session.id === activeChatId);
+  const sortedChatSessions = [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
+
+  // Loader for initial page mount and auth check
+  if (!pageIsMounted || authLoading) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -333,9 +358,9 @@ export default function ChatPage() {
     );
   }
 
-  // This check should now be reliable due to authLoading and pageIsMounted
+  // If no user after auth check (and page is mounted), redirection is handled by onAuthStateChanged.
+  // This is a fallback or state during the brief moment before redirection.
   if (!currentUser) {
-    // Redirect logic is handled by onAuthStateChanged, this is a fallback or initial state
      return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -343,12 +368,6 @@ export default function ChatPage() {
       </div>
     );
   }
-  
-  const currentChatSessions = Array.isArray(chatSessions) ? chatSessions : [];
-  const sortedChatSessions = [...currentChatSessions].sort((a, b) => b.createdAt - a.createdAt);
-  const activeChat = sortedChatSessions.find(session => session.id === activeChatId);
-
-  const topBarAndInputBarLeftOffset = isSidebarCollapsed ? 'md:left-20' : 'md:left-72';
 
   const moreOptionsMenuItems = [
     { label: "Profil", icon: UserIconImport, action: () => router.push('/profile') },
@@ -359,42 +378,39 @@ export default function ChatPage() {
     { label: "À propos de Sakai", icon: Info, action: () => setIsAboutDialogOpen(true) },
   ];
 
-
   return (
     <div className="flex h-screen bg-muted/30 dark:bg-background text-foreground">
-      {currentUser && ( 
-        <ChatSidebar
-          chatSessions={sortedChatSessions}
-          activeChatId={activeChatId}
-          onSelectChat={(id) => { setActiveChatId(id); if (isMobileMenuOpen) setIsMobileMenuOpen(false); }}
-          onNewChat={handleNewChat}
-          onDeleteChat={handleDeleteChat}
-          isMobileMenuOpen={isMobileMenuOpen}
-          setIsMobileMenuOpen={setIsMobileMenuOpen}
-          isSidebarCollapsed={isSidebarCollapsed}
-          toggleSidebarCollapse={toggleSidebarCollapse}
-          sakaiCurrentThought={sakaiCurrentThought}
-          isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled}
-          userAvatarUrl={userAvatarUrl}
-          editingChatId={editingChatId}
-          editingChatTitle={editingChatTitle}
-          onStartEditingChatTitle={startEditingChatTitle}
-          onRenameChat={handleRenameChat}
-          setEditingChatTitle={setEditingChatTitle}
-          setEditingChatId={setEditingChatId}
-          currentPersonality={aiPersonality}
-          onPersonalityChange={setAiPersonality}
-          onLogout={handleLogout}
-          onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
-          onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
-          onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
-          onOpenAboutDialog={() => setIsAboutDialogOpen(true)}
-          onOpenContactDialog={() => setIsContactDialogOpen(true)}
-        />
-      )}
+      <ChatSidebar
+        chatSessions={sortedChatSessions}
+        activeChatId={activeChatId}
+        onSelectChat={(id) => { setActiveChatId(id); if (isMobileMenuOpen) setIsMobileMenuOpen(false); }}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
+        isSidebarCollapsed={isSidebarCollapsed}
+        toggleSidebarCollapse={toggleSidebarCollapse}
+        sakaiCurrentThought={sakaiCurrentThought}
+        isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled}
+        userAvatarUrl={userAvatarUrl}
+        editingChatId={editingChatId}
+        editingChatTitle={editingChatTitle}
+        onStartEditingChatTitle={startEditingChatTitle}
+        onRenameChat={handleRenameChat}
+        setEditingChatTitle={setEditingChatTitle}
+        setEditingChatId={setEditingChatId}
+        currentPersonality={aiPersonality}
+        onPersonalityChange={setAiPersonality}
+        onLogout={handleLogout}
+        onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
+        onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
+        onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
+        onOpenAboutDialog={() => setIsAboutDialogOpen(true)}
+        onOpenContactDialog={() => setIsContactDialogOpen(true)}
+      />
 
       <main className={`flex-1 flex flex-col relative overflow-hidden bg-background dark:bg-black/20 transition-all duration-300 ease-in-out ${
-        currentUser ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72') : 'ml-0'
+        isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
       }`}>
         {/* Fixed Topbar */}
         <div className={`fixed top-0 right-0 h-16 bg-card/80 backdrop-blur-md border-b border-border/70
@@ -402,8 +418,8 @@ export default function ChatPage() {
                          ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
                          transition-all duration-300 ease-in-out`}>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={toggleSidebarCollapse} className="md:hidden text-muted-foreground">
-                {isSidebarCollapsed ? <PanelRightClose className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-muted-foreground">
+                 <PanelRightClose className="h-5 w-5" />
             </Button>
             <SakaiLogo className="h-7 w-7 text-primary" />
             <h1 className="text-lg font-semibold text-foreground truncate">
@@ -430,11 +446,10 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* ChatAssistant will now only render messages and the input form elements */}
-        {/* ChatPage will manage the overall layout including fixed topbar and input bar */}
-        {currentUser && activeChatId && (
+        {/* ChatAssistant rendering logic */}
+        {activeChatId && activeChat ? (
           <ChatAssistant
-            key={activeChatId} 
+            key={activeChatId}
             initialMessages={activeChatMessages}
             onMessagesUpdate={handleMessagesUpdate}
             userMemory={userMemory}
@@ -444,25 +459,23 @@ export default function ChatPage() {
             currentUserName={currentUser?.displayName}
             userAvatarUrl={userAvatarUrl}
             selectedPersonality={aiPersonality}
-            // Pass down callbacks for input and form elements
-            // These will be rendered by ChatAssistant but placed by ChatPage
-            // No need to pass dialog openers as they are handled by topbar MoreVertical
           />
-        )}
-        
-        {currentUser && !activeChatId && currentChatSessions.length > 0 && pageIsMounted && (
-           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16"> {/* Added pt-16 for topbar */}
-            <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-             <p>Sélection d'un chat...</p>
-          </div>
-        )}
-        {currentUser && !activeChatId && currentChatSessions.length === 0 && pageIsMounted && (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16"> {/* Added pt-16 */}
-              <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
-              <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
-              <Button onClick={handleNewChat} className="mt-4">
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
+            {sortedChatSessions.length > 0 ? (
+              <>
+                <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+                <p>Sélection d'un chat...</p>
+              </>
+            ) : (
+              <>
+                <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
+                <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
+                <Button onClick={handleNewChat} className="mt-4">
                   <Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat
-              </Button>
+                </Button>
+              </>
+            )}
           </div>
         )}
       </main>
