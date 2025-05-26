@@ -8,79 +8,79 @@ body {
 
 @layer base {
   :root {
-    /* Teal & Modern Palette - Light Mode */
-    --background: 200 60% 98%; /* Very light, almost white with a hint of teal */
-    --foreground: 205 50% 20%; /* Dark cool gray / desaturated teal */
+    /* Teal & Modern Palette - Light Mode (Adjusted for a more neutral base) */
+    --background: 0 0% 98%; /* Very light gray */
+    --foreground: 220 10% 20%; /* Dark cool gray */
 
     --card: 0 0% 100%; /* White */
-    --card-foreground: 205 50% 20%;
+    --card-foreground: 220 10% 20%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 205 50% 20%;
+    --popover-foreground: 220 10% 20%;
 
-    --primary: 175 65% 45%; /* Vibrant Teal */
-    --primary-foreground: 200 100% 98%; /* Light text on primary for contrast */
+    --primary: 200 75% 55%; /* A clear, modern blue */
+    --primary-foreground: 0 0% 98%; 
 
-    --secondary: 190 30% 95%; /* Light teal/gray for secondary elements */
-    --secondary-foreground: 205 50% 25%;
+    --secondary: 220 10% 94%; /* Light gray for secondary elements */
+    --secondary-foreground: 220 10% 30%;
 
-    --muted: 190 30% 92%; /* Muted elements, slightly darker than secondary */
-    --muted-foreground: 205 30% 45%;
+    --muted: 220 10% 90%; 
+    --muted-foreground: 220 10% 45%;
 
-    --accent: 30 90% 60%; /* Warm Coral/Orange for accent */
-    --accent-foreground: 205 50% 20%; /* Dark text on accent */
+    --accent: 200 80% 60%; /* Slightly brighter blue for accents if needed */
+    --accent-foreground: 0 0% 100%; 
 
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 190 30% 88%; /* Slightly darker border */
-    --input: 190 30% 90%; /* Consistent with border but distinct */
-    --ring: 175 65% 45%; /* Teal for rings, matching primary */
+    --border: 220 10% 88%; 
+    --input: 220 10% 92%; 
+    --ring: 200 75% 55%; /* Primary blue for rings */
 
-    --radius: 0.75rem; /* Slightly more rounded */
+    --radius: 0.75rem; 
 
-    /* Chart colors (adjust if charts are reintroduced) */
-    --chart-1: 175 65% 45%; /* Primary Teal */
-    --chart-2: 30 90% 60%;  /* Accent Coral */
-    --chart-3: 200 60% 65%; /* Lighter Teal */
-    --chart-4: 260 60% 70%; /* Soft Purple */
-    --chart-5: 0 60% 70%;   /* Soft Red/Pink */
+    /* Chart colors (not currently used, but good to keep in sync) */
+    --chart-1: 200 75% 55%; 
+    --chart-2: 175 70% 45%;  
+    --chart-3: 200 70% 70%; 
+    --chart-4: 260 60% 70%; 
+    --chart-5: 0 60% 70%;   
   }
 
   .dark {
-    /* Teal & Modern Palette - Dark Mode */
-    --background: 205 40% 12%; /* Dark cool gray / desaturated teal */
-    --foreground: 190 20% 90%; /* Light gray for text */
+    /* Dark Gray Theme - "ChatGPT-like" */
+    --background: 220 15% 12%; /* Very dark, cool gray (almost black) */
+    --foreground: 220 10% 85%; /* Light gray for text */
 
-    --card: 205 35% 18%; /* Darker card */
-    --card-foreground: 190 20% 90%;
+    --card: 220 15% 18%;      /* Slightly lighter dark gray for cards, topbar, input bar */
+    --card-foreground: 220 10% 85%;
 
-    --popover: 205 35% 18%;
-    --popover-foreground: 190 20% 90%;
+    --popover: 220 15% 16%; /* Popover slightly darker than card for depth */
+    --popover-foreground: 220 10% 85%;
 
-    --primary: 175 60% 55%; /* Teal, slightly lighter for dark mode */
-    --primary-foreground: 205 50% 15%; /* Dark text on dark primary */
+    --primary: 205 70% 58%;   /* A clear, modern blue for user messages & accents */
+    --primary-foreground: 220 15% 95%; /* Very light text on primary */
 
-    --secondary: 205 30% 22%;
-    --secondary-foreground: 190 20% 90%;
+    --secondary: 220 15% 28%;   /* For secondary buttons or elements */
+    --secondary-foreground: 220 10% 80%;
 
-    --muted: 205 30% 25%;
-    --muted-foreground: 190 20% 65%;
+    --muted: 220 15% 25%;
+    --muted-foreground: 220 10% 60%;
 
-    --accent: 30 80% 65%; /* Coral/Orange, slightly adjusted */
-    --accent-foreground: 205 40% 12%; /* Dark text on dark accent */
+    --accent: 190 80% 60%;    /* A vibrant cyan/teal for focus rings or minor accents */
+    --accent-foreground: 220 15% 10%;
 
-    --destructive: 0 60% 50%;
+    --destructive: 0 65% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 205 30% 30%;
-    --input: 205 30% 28%;
-    --ring: 175 60% 55%; /* Teal for rings in dark mode */
+    --border: 220 15% 28%;     /* Subtle borders */
+    --input: 220 15% 16%;      /* Input background, slightly darker than card */
+    --ring: 190 80% 60%; /* Cyan/teal for rings */
     
     /* Chart colors for dark mode */
-    --chart-1: 175 60% 55%;
-    --chart-2: 30 80% 65%;
-    --chart-3: 200 50% 60%;
+    --chart-1: 205 70% 58%;
+    --chart-2: 180 70% 50%;
+    --chart-3: 205 60% 70%;
     --chart-4: 260 50% 65%;
     --chart-5: 0 50% 65%;
   }
@@ -97,10 +97,10 @@ body {
   }
 }
 
-/* Styles for code blocks - adjusted for react-syntax-highlighter */
+/* Styles for code blocks - react-syntax-highlighter */
 pre {
   overflow-x: auto; 
-  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, var(--font-geist-mono); /* Added Geist Mono as fallback */
+  font-family: var(--font-geist-mono), Menlo, Monaco, Consolas, "Courier New", monospace;
   font-size: 0.875rem; /* 14px */
   line-height: 1.5; 
   margin-top: 0.5em;

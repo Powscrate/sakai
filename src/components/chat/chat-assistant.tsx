@@ -10,13 +10,11 @@ import {
   Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check,
   Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Settings, Zap, Contact
 } from 'lucide-react';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"; // Card components might be removed if not used for individual messages
-import { ThemeToggleButton } from './theme-toggle-button';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogClose, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart, type AIPersonality } from '@/ai/flows/chat-assistant-flow';
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
@@ -76,10 +74,15 @@ interface ChatAssistantProps {
   currentUserName?: string | null;
   userAvatarUrl: string | null;
   selectedPersonality: AIPersonality;
+  onOpenMemoryDialog: () => void;
+  onOpenDevSettingsDialog: () => void;
+  onOpenFeaturesDialog: () => void;
+  onOpenAboutDialog: () => void;
+  onOpenContactDialog: () => void;
 }
 
-const TOP_BAR_HEIGHT = '4rem'; // 64px
-const INPUT_BAR_MIN_HEIGHT = '4rem'; // Placeholder, adjust as needed, e.g. based on p-3 + input height + button height
+const TOP_BAR_HEIGHT_NUM = 64; // Corresponds to h-16
+const INPUT_BAR_MIN_HEIGHT_NUM = 80; // Approximate height, adjust if padding/input size changes
 
 export function ChatAssistant({
   initialMessages = [],
@@ -91,6 +94,11 @@ export function ChatAssistant({
   currentUserName,
   userAvatarUrl,
   selectedPersonality,
+  onOpenMemoryDialog,
+  onOpenDevSettingsDialog,
+  onOpenFeaturesDialog,
+  onOpenAboutDialog,
+  onOpenContactDialog
 }: ChatAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -107,7 +115,7 @@ export function ChatAssistant({
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-
+  
   const featureActions = [
     { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
     { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
@@ -120,7 +128,8 @@ export function ChatAssistant({
         setMessages(initialMessages);
         setInput('');
         setUploadedFiles([]);
-        if (inputRef.current && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"]')) {
+        // Focus input only if no modals/popovers are open
+        if (inputRef.current && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
            inputRef.current.focus();
         }
     }
@@ -138,7 +147,7 @@ export function ChatAssistant({
   useEffect(scrollToBottom, [messages, isLoading, scrollToBottom]);
 
   useEffect(() => {
-    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"]')) {
+    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
       inputRef.current.focus();
     }
   }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId]);
@@ -162,7 +171,7 @@ export function ChatAssistant({
           else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
           else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif';
           else {
-            console.warn(`Could not infer MIME type for ${file.name}, defaulting to application/octet-stream`);
+            console.warn(`SACAI_CLIENT: Could not infer MIME type for ${file.name}, defaulting to application/octet-stream`);
             effectiveMimeType = 'application/octet-stream'; 
           }
         }
@@ -181,12 +190,12 @@ export function ChatAssistant({
               const correctlyTypedFile = new File([file], file.name, { type: effectiveMimeType });
               setUploadedFiles(prev => [...prev, { dataUri: reader.result as string, file: correctlyTypedFile, id: uniqueId }]);
             } else {
-              console.error("FileReader result is null for file:", file.name);
+              console.error("SACAI_CLIENT: FileReader result is null for file:", file.name);
               toast({ title: "Erreur de lecture du fichier", description: `Impossible de lire le contenu du fichier "${file.name}".`, variant: "destructive" });
             }
           };
           reader.onerror = (error) => {
-            console.error("FileReader error for file:", file.name, error);
+            console.error("SACAI_CLIENT: FileReader error for file:", file.name, error);
             toast({ title: "Erreur de lecture du fichier", description: `Une erreur est survenue lors de la lecture du fichier "${file.name}".`, variant: "destructive" });
           };
           reader.readAsDataURL(file);
@@ -213,11 +222,12 @@ export function ChatAssistant({
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
+    // Extract the core prompt for image generation, removing leading keywords
     const coreImagePrompt = promptText.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de|montre-moi une image de|fais une image de|je veux une image de)\s*/i, '').trim();
 
     const userPromptMessage: ChatMessage = {
       role: 'user',
-      parts: [{ type: 'text', text: `Génère une image de ${coreImagePrompt}` }],
+      parts: [{ type: 'text', text: `Génère une image : ${coreImagePrompt}` }], // Use the full text for history
       id: imageGenUserMessageId,
       createdAt: Date.now(),
     };
@@ -229,18 +239,16 @@ export function ChatAssistant({
       createdAt: Date.now() + 1,
     };
     
-    const currentMessagesForDisplay = [...messages, userPromptMessage, assistantPlaceholderMessage];
-    setMessages(currentMessagesForDisplay);
+    setMessages(prev => [...prev, userPromptMessage, assistantPlaceholderMessage]);
     
     let finalAssistantMessage: ChatMessage | null = null;
-    const messagesForPersistence = [...initialMessages, userPromptMessage]; // Base for final update
-
+    
     try {
       const result: GenerateImageOutput = await generateImage({ prompt: coreImagePrompt });
       if (result.imageUrl) {
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
+            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], // Assuming PNG for now
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
@@ -266,7 +274,8 @@ export function ChatAssistant({
     } finally {
       if (finalAssistantMessage) {
         setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
-        onMessagesUpdate([...messagesForPersistence, finalAssistantMessage]);
+        // The main onMessagesUpdate will be called from handleSendMessage after this to save the whole sequence
+        onMessagesUpdate([...initialMessages, userPromptMessage, finalAssistantMessage]);
       }
       setIsLoading(false);
     }
@@ -280,29 +289,34 @@ export function ChatAssistant({
 
     if ((!currentInputVal && currentUploadedFiles.length === 0) || isLoading) return;
 
+    // Heuristic for image generation intent
     const imageKeywords = [
       "génère une image de", "dessine-moi", "crée une image de", "photo de", "image de",
       "génère une photo de", "fais une photo de", "je veux une photo de",
-      "génère un dessin de", "fais un dessin de", "je veux un dessin de"
+      "génère un dessin de", "fais un dessin de", "je veux un dessin de",
+      "génère-moi une image de", "crée-moi une image de"
     ];
     const lowerInput = currentInputVal.toLowerCase();
     let isImageRequestIntent = false;
-    if (currentUploadedFiles.length === 0) { 
+    if (currentUploadedFiles.length === 0) { // Only consider image generation if no files are uploaded
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
-      const capturedInputForImage = currentInputVal;
+      const capturedInputForImage = currentInputVal; // Capture before clearing
       setInput(''); 
       clearAllUploadedFiles();
-      await handleImageGeneration(capturedInputForImage);
+      await handleImageGeneration(capturedInputForImage); // This will call onMessagesUpdate itself
       return;
     }
 
+    // For regular chat messages or messages with file uploads
+    const userMessageId = `user-${Date.now()}`;
     const newUserMessageParts: ChatMessagePart[] = [];
+    
     currentUploadedFiles.forEach(fileWrapper => {
       newUserMessageParts.push({
-        type: 'image', 
+        type: 'image', // Used for generic media
         imageDataUri: fileWrapper.dataUri,
         mimeType: fileWrapper.file.type || 'application/octet-stream'
       });
@@ -312,9 +326,8 @@ export function ChatAssistant({
       newUserMessageParts.push({ type: 'text', text: currentInputVal });
     }
 
-    if (newUserMessageParts.length === 0) return;
+    if (newUserMessageParts.length === 0) return; // Should not happen if check at the top is working
     
-    const userMessageId = `user-${Date.now()}`;
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
     
     const assistantMessageId = `model-${Date.now()}`;
@@ -323,17 +336,17 @@ export function ChatAssistant({
 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     
-    // Update local state for immediate display
+    // Update local state for immediate display BEFORE clearing inputs
     setMessages(prev => [...prev, newUserMessage, assistantPlaceholderMessage]);
     
-    const historyForApi = [...initialMessages, newUserMessage];
+    const historyForApi = [...initialMessages, newUserMessage]; // initialMessages is from props (ChatPage's state)
     
     // Clear input fields AFTER capturing their values and updating local display
     setInput(''); 
     clearAllUploadedFiles();
 
     let accumulatedText = "";
-    let finalAssistantMessageContent: ChatMessage | null = null;
+    let finalAssistantMessage: ChatMessage | null = null;
 
     try {
       const readableStream = await streamChatAssistant({
@@ -345,6 +358,7 @@ export function ChatAssistant({
       });
       const reader = readableStream.getReader();
       
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -352,7 +366,7 @@ export function ChatAssistant({
         const chatChunk: ChatStreamChunk = value;
 
         if (chatChunk.error) {
-          console.error("Stream error from server:", chatChunk.error);
+          console.error("SACAI_CLIENT: Stream error from server:", chatChunk.error);
           accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`;
           toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
           break; 
@@ -370,7 +384,7 @@ export function ChatAssistant({
         }
       }
 
-      finalAssistantMessageContent = {
+      finalAssistantMessage = {
         role: 'model',
         parts: [{type: 'text' as 'text', text: accumulatedText }],
         id: assistantMessageId,
@@ -378,24 +392,26 @@ export function ChatAssistant({
       };
 
     } catch (error: any) {
-      console.error("Erreur majeure lors du streaming (côté client):", error);
+      console.error("SACAI_CLIENT: Erreur majeure lors du streaming (côté client):", error);
       const errorMessageText = error?.message || "Désolé, une erreur de communication est survenue.";
       toast({ title: "Erreur de Communication", description: errorMessageText, variant: "destructive" });
-      finalAssistantMessageContent = {
+      finalAssistantMessage = {
         role: 'model',
         parts: [{ type: 'text', text: errorMessageText }],
         id: assistantMessageId,
         createdAt: Date.now()
       };
     } finally {
-      if (finalAssistantMessageContent) {
-        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessageContent]);
+      if (finalAssistantMessage) {
+        // One single call to update the parent's state (and thus localStorage via ChatPage)
+        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessage]);
       } else {
-        const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
+        // Handle case where finalAssistantMessage might be null due to an early break or unhandled issue
+        const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue durant la réponse.";
         const errorMsgForPersistence: ChatMessage = {
           role: 'model',
           parts: [{ type: 'text', text: fallbackErrorMsg }],
-          id: assistantMessageId,
+          id: assistantMessageId, // Reuse placeholder ID
           createdAt: Date.now()
         };
         onMessagesUpdate([...initialMessages, newUserMessage, errorMsgForPersistence]);
@@ -417,7 +433,7 @@ export function ChatAssistant({
       setTimeout(() => { setCopiedStates(prev => ({ ...prev, [partId]: false })); }, 2000);
       toast({ title: "Copié!", description: "Le code a été copié." });
     }).catch(err => {
-      console.error('Failed to copy code: ', err);
+      console.error('SACAI_CLIENT: Failed to copy code: ', err);
       toast({ title: "Erreur", description: "Impossible de copier le code.", variant: "destructive" });
     });
   };
@@ -445,7 +461,7 @@ export function ChatAssistant({
       URL.revokeObjectURL(url);
       toast({ title: "Téléchargement", description: `Le fichier "${filename}" a été téléchargé.` });
     } catch (error) {
-      console.error("Error downloading generated file:", error);
+      console.error("SACAI_CLIENT: Error downloading generated file:", error);
       toast({ title: "Erreur de téléchargement", variant: "destructive" });
     }
   };
@@ -474,10 +490,11 @@ export function ChatAssistant({
     if (lastIndex < remainingText.length) parts.push(remainingText.substring(lastIndex));
     return <>{parts.filter(part => typeof part === 'string' ? part.length > 0 : true)}</>;
   };
-
+  
   const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
     const elements: JSX.Element[] = [];
-    const mainRegex = /(```(\w*)\n?([\s\S]*?)```|---BEGIN_FILE:\s*(.+?)\s*---([\s\S]*?)---END_FILE---)/gs;
+    // Adjusted regex to better handle code blocks and file blocks
+    const mainRegex = /(```(?:(\w+)\n)?([\s\S]*?)```|---BEGIN_FILE:\s*([^ \n\r]+)\s*---([\s\S]*?)---END_FILE---)/gs;
     let lastIndex = 0;
     let match;
     let blockKeyIndex = 0;
@@ -486,7 +503,7 @@ export function ChatAssistant({
       const segmentLines = blockText.split('\n');
       let currentListType: 'ul' | 'ol' | null = null;
       let listItems: JSX.Element[] = [];
-      let keyIndex = 0;
+      let keyIndex = 0; // Renamed from keyIdx to avoid conflict
 
       const flushList = () => {
         if (listItems.length > 0) {
@@ -541,9 +558,9 @@ export function ChatAssistant({
       if (match[1].startsWith('```')) { 
         const lang = match[2]?.toLowerCase() || 'plaintext';
         const code = match[3].trimEnd(); 
-        const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex++}`;
+        const codeBlockId = `${uniqueKeyPrefix}-code-${blockKeyIndex}`;
         elements.push(
-          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/30 my-2.5 rounded-md shadow-sm overflow-hidden">
+          <div key={codeBlockId} className="relative group bg-muted dark:bg-black/40 my-2.5 rounded-md shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/50">
               <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
               <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground" onClick={() => handleCopyCode(code, codeBlockId)} aria-label="Copier le code">
@@ -555,10 +572,10 @@ export function ChatAssistant({
             </SyntaxHighlighter>
           </div>
         );
-      } else { 
+      } else { // File block
         const fileName = match[4].trim();
         const fileContent = match[5].trim();
-        const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex++}`;
+        const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex}`;
         let mimeType = 'text/plain';
         if (fileName.endsWith('.md')) mimeType = 'text/markdown';
         else if (fileName.endsWith('.txt')) mimeType = 'text/plain';
@@ -567,13 +584,14 @@ export function ChatAssistant({
         );
       }
       lastIndex = match.index + match[0].length;
-      blockKeyIndex++; // Ensure blockKeyIndex increments for each block type
+      blockKeyIndex++; 
     }
     if (lastIndex < text.length) {
       parseNonCodeBlock(text.substring(lastIndex));
     }
     return elements;
   };
+
 
   const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
     const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}-${Math.random().toString(36).substring(2,7)}`;
@@ -598,7 +616,7 @@ export function ChatAssistant({
              {message.role === 'model' && (<Button variant="outline" size="icon" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity bg-background/70 hover:bg-background" onClick={(e) => { e.stopPropagation(); handleDownloadImage(part.imageDataUri as string); }} aria-label="Télécharger l'image"><Download className="h-4 w-4" /></Button>)}
           </div>
         );
-      } else {
+      } else { // Non-image file (PDF, TXT, MD)
         const fileNameFromPart = (uploadedFiles.find(f => f.dataUri === part.imageDataUri)?.file.name) || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
@@ -613,21 +631,28 @@ export function ChatAssistant({
 
   // This component will now be a direct child of the flex-col container in ChatPage
   // It needs to provide the scrollable message area and the input form area
+  // Layout will be handled by ChatPage
   return (
     <>
-      {/* Scrollable Message Area */}
+      {/* Message Display Area */}
       <ScrollArea 
         ref={scrollAreaRef} 
         className="flex-1 w-full" // Takes available space
-        style={{ paddingTop: TOP_BAR_HEIGHT, paddingBottom: INPUT_BAR_MIN_HEIGHT }} // Padding for fixed elements
+        style={{ 
+            paddingTop: `${TOP_BAR_HEIGHT_NUM}px`, 
+            paddingBottom: `${INPUT_BAR_MIN_HEIGHT_NUM}px`,
+            scrollBehavior: 'smooth',
+        }}
       >
         <div className="p-4 sm:p-6 space-y-4 max-w-4xl mx-auto"> {/* Content centered and max-width */}
           {messages.length === 0 && !isLoading && (
-             <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 space-y-6">
-              <SakaiLogo className="h-28 w-28 text-primary opacity-70 mb-4" data-ai-hint="logo large"/>
-              <p className="text-xl 2xl:text-2xl font-medium">Salut {currentUserName || "l'ami"} ! C'est Sakai.</p>
-              <p className="text-sm 2xl:text-base max-w-md">
-                Comment puis-je t'aider aujourd'hui ?
+             <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-6 mt-16">
+              <SakaiLogo className="h-20 w-20 sm:h-24 sm:w-24 text-primary opacity-80 mb-4" data-ai-hint="logo large"/>
+              <p className="text-xl 2xl:text-2xl font-medium text-foreground">
+                Comment puis-je vous aider aujourd'hui, {currentUserName || "l'ami"} ?
+              </p>
+              <p className="text-sm 2xl:text-base max-w-md text-muted-foreground">
+                Posez-moi une question, téléversez des fichiers pour analyse, ou demandez-moi de générer une image.
               </p>
             </div>
           )}
@@ -650,7 +675,7 @@ export function ChatAssistant({
                     )
                   )}
                   <div className={cn(
-                     "p-3.5 rounded-xl shadow-md transition-all duration-200 ease-out hover:shadow-lg w-fit", // w-fit makes bubble size to content
+                     "p-3.5 rounded-xl shadow-md transition-all duration-200 ease-out hover:shadow-lg w-fit", 
                      isUser ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-card border text-card-foreground rounded-bl-none',
                      (msg.parts.some(p => p.type === 'image' && p.mimeType?.startsWith('image/')) && !isLoadingPlaceholder && !isImageGenPlaceholder) && "p-1.5 bg-transparent shadow-none border-none dark:bg-transparent"
                   )}>
@@ -670,11 +695,8 @@ export function ChatAssistant({
         </div>
       </ScrollArea>
 
-      {/* Fixed Input Bar Area - to be placed by ChatPage */}
-      <div className="fixed bottom-0 right-0 border-t bg-card/80 backdrop-blur-md z-20 transition-all duration-300 ease-in-out"
-           style={{ left: (document.querySelector('.md\\:left-72, .md\\:left-20')?.classList.contains('md:left-72') ? '18rem' : '5rem'), paddingBottom: 'env(safe-area-inset-bottom)' }} // Dynamic left offset via JS or CSS var if sidebar state is available here
-      >
-        <div className="p-3 sm:p-4 max-w-3xl mx-auto w-full"> {/* Centered input area */}
+      {/* Input Form Area - This will be rendered by ChatPage in a fixed bottom bar */}
+      <div className="w-full p-3 sm:p-4"> {/* Max-width handled by ChatPage */}
           {uploadedFiles.length > 0 && (
             <div className="mb-2.5 space-y-1.5">
               <div className="flex justify-between items-center">
@@ -694,12 +716,12 @@ export function ChatAssistant({
               </div></ScrollArea>
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2.5">
+          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2 sm:gap-2.5">
             <Popover open={isFeaturesPopoverOpen} onOpenChange={setIsFeaturesPopoverOpen}>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="icon" type="button" aria-label="Fonctionnalités de Sakai" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Sparkles className="h-5 w-5" /></Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-2 bg-card border shadow-xl rounded-lg mb-2" side="top" align="start">
+              <PopoverContent className="w-auto p-2 bg-popover border shadow-xl rounded-lg mb-2" side="top" align="start">
                 <div className="flex gap-1">
                   {featureActions.map((action) => (
                     <TooltipProvider key={action.id} delayDuration={100}><Tooltip>
@@ -712,19 +734,18 @@ export function ChatAssistant({
             </Popover>
             <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Paperclip className="h-5 w-5" /></Button>
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,application/pdf,text/plain,.md,text/markdown"/>
-            <Input ref={inputRef} type="text" placeholder="Envoyer un message à Sakai..." value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} className="flex-1 py-2.5 px-3.5 text-sm rounded-lg bg-background focus-visible:ring-primary/50 h-10"/>
+            <Input ref={inputRef} type="text" placeholder="Envoyer un message à Sakai..." value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} className="flex-1 py-2.5 px-3.5 text-sm rounded-lg bg-input focus-visible:ring-primary/50 h-10"/>
             <Button variant="outline" size="icon" type="button" aria-label="Saisie vocale (Bientôt disponible)" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg" disabled><Mic className="h-5 w-5" /></Button>
             <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
               {isLoading && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
           </form>
         </div>
-      </div>
 
       {isImagePreviewOpen && imagePreviewUrl && (
         <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
           <DialogContent className="max-w-3xl p-2 bg-card">
-            <DialogHeader></DialogHeader>
+            {/* <DialogHeader></DialogHeader> */}
             <NextImage src={imagePreviewUrl} alt="Aperçu de l'image" width={800} height={600} className="rounded-md object-contain max-h-[80vh] w-full h-auto" data-ai-hint="image full preview"/>
             <DialogFooter className="mt-2 sm:justify-center">
                 <Button variant="outline" onClick={() => {handleDownloadImage(imagePreviewUrl); setIsImagePreviewOpen(false);}}><Download className="mr-2 h-4 w-4" /> Télécharger</Button>
