@@ -8,19 +8,23 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check,
-  Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Settings, Zap, Contact
+  Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Settings, Zap, Contact, Globe, Bot as DeepSakaiIcon
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogClose, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+
 
 import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart, type AIPersonality } from '@/ai/flows/chat-assistant-flow';
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
+import { ThemeToggleButton } from './theme-toggle-button'; // Assurez-vous que ce chemin est correct
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -74,15 +78,14 @@ interface ChatAssistantProps {
   currentUserName?: string | null;
   userAvatarUrl: string | null;
   selectedPersonality: AIPersonality;
-  onOpenMemoryDialog: () => void;
-  onOpenDevSettingsDialog: () => void;
-  onOpenFeaturesDialog: () => void;
-  onOpenAboutDialog: () => void;
-  onOpenContactDialog: () => void;
+  isWebSearchEnabled: boolean;
+  onWebSearchChange: (enabled: boolean) => void;
+  isDeepSakaiEnabled: boolean;
+  onDeepSakaiChange: (enabled: boolean) => void;
 }
 
-const TOP_BAR_HEIGHT_NUM = 64; // Corresponds to h-16
-const INPUT_BAR_MIN_HEIGHT_NUM = 80; // Approximate height, adjust if padding/input size changes
+const TOP_BAR_HEIGHT_NUM = 64; 
+const INPUT_BAR_MIN_HEIGHT_NUM = 96; 
 
 export function ChatAssistant({
   initialMessages = [],
@@ -94,11 +97,10 @@ export function ChatAssistant({
   currentUserName,
   userAvatarUrl,
   selectedPersonality,
-  onOpenMemoryDialog,
-  onOpenDevSettingsDialog,
-  onOpenFeaturesDialog,
-  onOpenAboutDialog,
-  onOpenContactDialog
+  isWebSearchEnabled,
+  onWebSearchChange,
+  isDeepSakaiEnabled,
+  onDeepSakaiChange,
 }: ChatAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -128,7 +130,6 @@ export function ChatAssistant({
         setMessages(initialMessages);
         setInput('');
         setUploadedFiles([]);
-        // Focus input only if no modals/popovers are open
         if (inputRef.current && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
            inputRef.current.focus();
         }
@@ -218,28 +219,28 @@ export function ChatAssistant({
 
   const handleImageGeneration = async (promptText: string) => {
     setIsLoading(true);
-    setCurrentStreamingMessageId(null); 
+    setCurrentStreamingMessageId(null);
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
 
-    // Extract the core prompt for image generation, removing leading keywords
-    const coreImagePrompt = promptText.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de|montre-moi une image de|fais une image de|je veux une image de)\s*/i, '').trim();
+    const coreImagePrompt = promptText; 
 
     const userPromptMessage: ChatMessage = {
       role: 'user',
-      parts: [{ type: 'text', text: `Génère une image : ${coreImagePrompt}` }], // Use the full text for history
+      parts: [{ type: 'text', text: `Génère une image : ${coreImagePrompt}` }],
       id: imageGenUserMessageId,
       createdAt: Date.now(),
     };
 
     const assistantPlaceholderMessage: ChatMessage = {
       role: 'model',
-      parts: [{ type: 'text', text: `Sakai génère une image pour : "${coreImagePrompt.substring(0,50)}..."` }],
+      parts: [{ type: 'text', text: `Sakai génère une image pour : "${coreImagePrompt.substring(0, 50)}..."` }],
       id: imageGenPlaceholderId,
       createdAt: Date.now() + 1,
     };
     
-    setMessages(prev => [...prev, userPromptMessage, assistantPlaceholderMessage]);
+    let finalUserAndAssistantMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
+    setMessages(finalUserAndAssistantMessages);
     
     let finalAssistantMessage: ChatMessage | null = null;
     
@@ -248,7 +249,7 @@ export function ChatAssistant({
       if (result.imageUrl) {
         finalAssistantMessage = {
             role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], // Assuming PNG for now
+            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
             id: imageGenPlaceholderId, 
             createdAt: Date.now(),
         };
@@ -273,9 +274,11 @@ export function ChatAssistant({
         };
     } finally {
       if (finalAssistantMessage) {
-        setMessages(prev => prev.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
-        // The main onMessagesUpdate will be called from handleSendMessage after this to save the whole sequence
-        onMessagesUpdate([...initialMessages, userPromptMessage, finalAssistantMessage]);
+        const updatedMessagesForPersistence = finalUserAndAssistantMessages.map(msg => 
+            msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg
+        );
+        setMessages(updatedMessagesForPersistence);
+        onMessagesUpdate(updatedMessagesForPersistence);
       }
       setIsLoading(false);
     }
@@ -289,7 +292,6 @@ export function ChatAssistant({
 
     if ((!currentInputVal && currentUploadedFiles.length === 0) || isLoading) return;
 
-    // Heuristic for image generation intent
     const imageKeywords = [
       "génère une image de", "dessine-moi", "crée une image de", "photo de", "image de",
       "génère une photo de", "fais une photo de", "je veux une photo de",
@@ -298,25 +300,24 @@ export function ChatAssistant({
     ];
     const lowerInput = currentInputVal.toLowerCase();
     let isImageRequestIntent = false;
-    if (currentUploadedFiles.length === 0) { // Only consider image generation if no files are uploaded
+    if (currentUploadedFiles.length === 0) {
         isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
     }
 
     if (isImageRequestIntent) {
-      const capturedInputForImage = currentInputVal; // Capture before clearing
+      const capturedInputForImage = currentInputVal;
       setInput(''); 
       clearAllUploadedFiles();
-      await handleImageGeneration(capturedInputForImage); // This will call onMessagesUpdate itself
+      await handleImageGeneration(capturedInputForImage.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de|génère une photo de|fais une photo de|je veux une photo de|génère un dessin de|fais un dessin de|je veux un dessin de|génère-moi une image de|crée-moi une image de)\s*/i, '').trim());
       return;
     }
 
-    // For regular chat messages or messages with file uploads
     const userMessageId = `user-${Date.now()}`;
     const newUserMessageParts: ChatMessagePart[] = [];
     
     currentUploadedFiles.forEach(fileWrapper => {
       newUserMessageParts.push({
-        type: 'image', // Used for generic media
+        type: 'image', 
         imageDataUri: fileWrapper.dataUri,
         mimeType: fileWrapper.file.type || 'application/octet-stream'
       });
@@ -326,7 +327,7 @@ export function ChatAssistant({
       newUserMessageParts.push({ type: 'text', text: currentInputVal });
     }
 
-    if (newUserMessageParts.length === 0) return; // Should not happen if check at the top is working
+    if (newUserMessageParts.length === 0) return;
     
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
     
@@ -336,12 +337,11 @@ export function ChatAssistant({
 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     
-    // Update local state for immediate display BEFORE clearing inputs
-    setMessages(prev => [...prev, newUserMessage, assistantPlaceholderMessage]);
+    const messagesForImmediateDisplay = [...messages, newUserMessage, assistantPlaceholderMessage];
+    setMessages(messagesForImmediateDisplay);
     
-    const historyForApi = [...initialMessages, newUserMessage]; // initialMessages is from props (ChatPage's state)
+    const historyForApi = [...initialMessages, newUserMessage]; 
     
-    // Clear input fields AFTER capturing their values and updating local display
     setInput(''); 
     clearAllUploadedFiles();
 
@@ -349,12 +349,15 @@ export function ChatAssistant({
     let finalAssistantMessage: ChatMessage | null = null;
 
     try {
+      console.log("SACAI_CLIENT: Calling streamChatAssistant with history length:", historyForApi.length, "Personality:", selectedPersonality, "WebSearch:", isWebSearchEnabled, "DeepSakai:", isDeepSakaiEnabled);
       const readableStream = await streamChatAssistant({
         history: historyForApi,
         memory: userMemory,
         overrideSystemPrompt: devOverrideSystemPrompt,
         temperature: devModelTemperature,
         personality: selectedPersonality,
+        enableWebSearch: isWebSearchEnabled,
+        enableDeepSakai: isDeepSakaiEnabled,
       });
       const reader = readableStream.getReader();
       
@@ -402,20 +405,24 @@ export function ChatAssistant({
         createdAt: Date.now()
       };
     } finally {
+      let messagesForPersistence;
       if (finalAssistantMessage) {
-        // One single call to update the parent's state (and thus localStorage via ChatPage)
-        onMessagesUpdate([...initialMessages, newUserMessage, finalAssistantMessage]);
+        messagesForPersistence = messagesForImmediateDisplay.map(msg => 
+            msg.id === assistantMessageId ? finalAssistantMessage! : msg
+        );
       } else {
-        // Handle case where finalAssistantMessage might be null due to an early break or unhandled issue
         const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue durant la réponse.";
         const errorMsgForPersistence: ChatMessage = {
           role: 'model',
           parts: [{ type: 'text', text: fallbackErrorMsg }],
-          id: assistantMessageId, // Reuse placeholder ID
+          id: assistantMessageId, 
           createdAt: Date.now()
         };
-        onMessagesUpdate([...initialMessages, newUserMessage, errorMsgForPersistence]);
+         messagesForPersistence = messagesForImmediateDisplay.map(msg => 
+            msg.id === assistantMessageId ? errorMsgForPersistence : msg
+        );
       }
+      onMessagesUpdate(messagesForPersistence); // Single call to persist final state
       setIsLoading(false);
       setCurrentStreamingMessageId(null);
     }
@@ -493,7 +500,6 @@ export function ChatAssistant({
   
   const parseAndStyleText = (text: string, uniqueKeyPrefix: string) => {
     const elements: JSX.Element[] = [];
-    // Adjusted regex to better handle code blocks and file blocks
     const mainRegex = /(```(?:(\w+)\n)?([\s\S]*?)```|---BEGIN_FILE:\s*([^ \n\r]+)\s*---([\s\S]*?)---END_FILE---)/gs;
     let lastIndex = 0;
     let match;
@@ -503,7 +509,7 @@ export function ChatAssistant({
       const segmentLines = blockText.split('\n');
       let currentListType: 'ul' | 'ol' | null = null;
       let listItems: JSX.Element[] = [];
-      let keyIndex = 0; // Renamed from keyIdx to avoid conflict
+      let keyIndex = 0; 
 
       const flushList = () => {
         if (listItems.length > 0) {
@@ -616,7 +622,7 @@ export function ChatAssistant({
              {message.role === 'model' && (<Button variant="outline" size="icon" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity bg-background/70 hover:bg-background" onClick={(e) => { e.stopPropagation(); handleDownloadImage(part.imageDataUri as string); }} aria-label="Télécharger l'image"><Download className="h-4 w-4" /></Button>)}
           </div>
         );
-      } else { // Non-image file (PDF, TXT, MD)
+      } else { 
         const fileNameFromPart = (uploadedFiles.find(f => f.dataUri === part.imageDataUri)?.file.name) || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
@@ -629,22 +635,15 @@ export function ChatAssistant({
     return null;
   };
 
-  // This component will now be a direct child of the flex-col container in ChatPage
-  // It needs to provide the scrollable message area and the input form area
-  // Layout will be handled by ChatPage
   return (
     <>
-      {/* Message Display Area */}
+      {/* Message Display Area - Fixed Top & Bottom Padding by parent in page.tsx */}
       <ScrollArea 
         ref={scrollAreaRef} 
-        className="flex-1 w-full" // Takes available space
-        style={{ 
-            paddingTop: `${TOP_BAR_HEIGHT_NUM}px`, 
-            paddingBottom: `${INPUT_BAR_MIN_HEIGHT_NUM}px`,
-            scrollBehavior: 'smooth',
-        }}
+        className="flex-1 w-full"
+        style={{ scrollBehavior: 'smooth' }}
       >
-        <div className="p-4 sm:p-6 space-y-4 max-w-4xl mx-auto"> {/* Content centered and max-width */}
+        <div className="p-4 sm:p-6 space-y-4 max-w-4xl mx-auto"> 
           {messages.length === 0 && !isLoading && (
              <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-6 mt-16">
               <SakaiLogo className="h-20 w-20 sm:h-24 sm:w-24 text-primary opacity-80 mb-4" data-ai-hint="logo large"/>
@@ -695,8 +694,8 @@ export function ChatAssistant({
         </div>
       </ScrollArea>
 
-      {/* Input Form Area - This will be rendered by ChatPage in a fixed bottom bar */}
-      <div className="w-full p-3 sm:p-4"> {/* Max-width handled by ChatPage */}
+      {/* Input Form Area - To be placed in the fixed bottom bar by page.tsx */}
+      <div className="w-full p-3 sm:p-4"> 
           {uploadedFiles.length > 0 && (
             <div className="mb-2.5 space-y-1.5">
               <div className="flex justify-between items-center">
@@ -734,8 +733,55 @@ export function ChatAssistant({
             </Popover>
             <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Paperclip className="h-5 w-5" /></Button>
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,application/pdf,text/plain,.md,text/markdown"/>
+            
+            {/* Mode Web & Deep Sakai Toggles */}
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
+                    <Switch
+                      id="web-search-toggle"
+                      checked={isWebSearchEnabled}
+                      onCheckedChange={onWebSearchChange}
+                      className="data-[state=checked]:bg-blue-500 dark:data-[state=checked]:bg-blue-500"
+                      aria-label="Activer/Désactiver la recherche web"
+                    />
+                    <Label htmlFor="web-search-toggle" className="cursor-pointer">
+                      <Globe className={cn("h-5 w-5", isWebSearchEnabled ? "text-blue-500" : "text-muted-foreground")} />
+                    </Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md">
+                  <p>Mode Web (Simulé)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
+                     <Switch
+                      id="deep-sakai-toggle"
+                      checked={isDeepSakaiEnabled}
+                      onCheckedChange={onDeepSakaiChange}
+                      className="data-[state=checked]:bg-purple-500 dark:data-[state=checked]:bg-purple-500"
+                      aria-label="Activer/Désactiver le mode DeepSakai"
+                    />
+                    <Label htmlFor="deep-sakai-toggle" className="cursor-pointer">
+                      <DeepSakaiIcon className={cn("h-5 w-5", isDeepSakaiEnabled ? "text-purple-500" : "text-muted-foreground")} />
+                    </Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md">
+                  <p>Mode DeepSakai</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+
             <Input ref={inputRef} type="text" placeholder="Envoyer un message à Sakai..." value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} className="flex-1 py-2.5 px-3.5 text-sm rounded-lg bg-input focus-visible:ring-primary/50 h-10"/>
-            <Button variant="outline" size="icon" type="button" aria-label="Saisie vocale (Bientôt disponible)" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg" disabled><Mic className="h-5 w-5" /></Button>
+            
             <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
               {isLoading && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </Button>
@@ -745,10 +791,9 @@ export function ChatAssistant({
       {isImagePreviewOpen && imagePreviewUrl && (
         <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
           <DialogContent className="max-w-3xl p-2 bg-card">
-            {/* <DialogHeader></DialogHeader> */}
             <NextImage src={imagePreviewUrl} alt="Aperçu de l'image" width={800} height={600} className="rounded-md object-contain max-h-[80vh] w-full h-auto" data-ai-hint="image full preview"/>
             <DialogFooter className="mt-2 sm:justify-center">
-                <Button variant="outline" onClick={() => {handleDownloadImage(imagePreviewUrl); setIsImagePreviewOpen(false);}}><Download className="mr-2 h-4 w-4" /> Télécharger</Button>
+                <Button variant="outline" onClick={() => { if(imagePreviewUrl) handleDownloadImage(imagePreviewUrl); setIsImagePreviewOpen(false);}}><Download className="mr-2 h-4 w-4" /> Télécharger</Button>
               <DialogClose asChild><Button type="button">Fermer</Button></DialogClose>
             </DialogFooter>
           </DialogContent>

@@ -29,7 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from '@/hooks/use-toast';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase'; // db importé mais pas encore utilisé pour les chats
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -44,11 +44,12 @@ export type AIPersonality = (typeof aiPersonalities)[number];
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: number;
-  userId: string;
+  createdAt: number; // Timestamp for sorting
+  userId: string; // To associate chat with a user
   messages: ChatMessage[];
 }
 
+// Helper functions to get localStorage keys based on user ID
 const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v3_${userId}` : `sakaiChatSessions_v3_fallback_no_user`;
 const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v3_${userId}` : `sakaiActiveChatId_v3_fallback_no_user`;
 const getUserAvatarKey = (userId: string | undefined) => userId ? `sakaiUserAvatar_${userId}` : 'sakaiUserAvatar_fallback';
@@ -72,6 +73,7 @@ export default function ChatPage() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // State for LocalStorage values, keys will update once currentUser is available
   const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
   const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
   const [userAvatarUrl, setUserAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
@@ -97,11 +99,13 @@ export default function ChatPage() {
   const [devCodeInput, setDevCodeInput] = useState('');
   const [isDevSettingsOpen, setIsDevSettingsOpen] = useState(false);
   
+  // Temporary states for the dev settings dialog
   const [tempOverrideSystemPrompt, setTempOverrideSystemPrompt] = useState('');
   const [tempModelTemperature, setTempModelTemperature] = useState(0.7);
   const [tempIsDevSakaiAmbianceEnabled, setTempIsDevSakaiAmbianceEnabled] = useState(false);
-  const [tempIsWebSearchEnabled, setTempIsWebSearchEnabled] = useState(false);
-  const [tempIsDeepSakaiEnabled, setTempIsDeepSakaiEnabled] = useState(false);
+  const [tempIsWebSearchEnabled, setTempIsWebSearchEnabled] = useState(false); // For dev dialog
+  const [tempIsDeepSakaiEnabled, setTempIsDeepSakaiEnabled] = useState(false); // For dev dialog
+
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
@@ -113,14 +117,15 @@ export default function ChatPage() {
     setPageIsMounted(true);
   }, []);
 
+  // Auth state listener
   useEffect(() => {
     if (!pageIsMounted) return;
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setAuthLoading(false);
-      if (!user) {
-        // Clear user-specific localStorage items on logout or if no user
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        // Clear all user-specific localStorage on logout
         localStorage.removeItem(getChatSessionsKey(currentUser?.uid));
         localStorage.removeItem(getActiveChatIdKey(currentUser?.uid));
         localStorage.removeItem(getUserAvatarKey(currentUser?.uid));
@@ -132,13 +137,17 @@ export default function ChatPage() {
         localStorage.removeItem(getAiPersonalityKey(currentUser?.uid));
         localStorage.removeItem(getWebSearchEnabledKey(currentUser?.uid));
         localStorage.removeItem(getDeepSakaiEnabledKey(currentUser?.uid));
+        
+        setCurrentUser(null); // Ensure currentUser state is also nullified
         router.push('/auth/login');
       }
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, router]);
+  }, [pageIsMounted, router]); // currentUser?.uid removed to avoid loop on logout
 
+  // Effect to initialize dev settings temporary states once user is loaded
   useEffect(() => {
     if (pageIsMounted && currentUser && !authLoading) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
@@ -149,8 +158,9 @@ export default function ChatPage() {
     }
   }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, isWebSearchEnabled, isDeepSakaiEnabled, pageIsMounted, currentUser, authLoading]);
 
+
   const fetchSakaiThought = useCallback(async () => {
-    if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return;
+    if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return; // Ensure currentUser exists
     try {
       const result: GenerateSakaiThoughtOutput = await generateSakaiThought();
       if (result.thought) {
@@ -161,18 +171,18 @@ export default function ChatPage() {
       }
     } catch (error) {
       console.error("Error fetching Sakai's thought:", error);
-      setSakaiCurrentThought(null);
+      setSakaiCurrentThought(null); // Clear thought on error
     }
   }, [isDevSakaiAmbianceEnabled, pageIsMounted, currentUser]);
 
   useEffect(() => {
     if (isDevSakaiAmbianceEnabled && pageIsMounted && currentUser) {
-      fetchSakaiThought();
+      fetchSakaiThought(); // Initial fetch
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000);
+      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000); // Fetch every 60 seconds
     } else {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      setSakaiCurrentThought(null);
+      setSakaiCurrentThought(null); // Clear thought if ambiance is off or no user
     }
     return () => {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
@@ -180,13 +190,13 @@ export default function ChatPage() {
   }, [isDevSakaiAmbianceEnabled, fetchSakaiThought, pageIsMounted, currentUser]);
 
   const handleNewChat = useCallback(() => {
-    if (!currentUser) return;
+    if (!currentUser) return; // Guard against no user
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
       id: newChatId,
-      title: "Nouveau Chat",
+      title: "Nouveau Chat", // Default title
       createdAt: Date.now(),
-      userId: currentUser.uid,
+      userId: currentUser.uid, // Associate with current user
       messages: [],
     };
     setChatSessions(prevSessions => [newChatSession, ...prevSessions].sort((a, b) => b.createdAt - a.createdAt));
@@ -194,25 +204,27 @@ export default function ChatPage() {
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
   }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
 
+
   // Effect for initializing chats or redirecting
   useEffect(() => {
-    if (!pageIsMounted || authLoading) return;
-
-    if (!currentUser) {
-      router.push('/auth/login');
+    if (!pageIsMounted || authLoading || !currentUser) {
+      // If not mounted, or auth is loading, or no current user yet, do nothing.
+      // Redirection if !currentUser is handled by the auth state listener effect.
       return;
     }
+    // At this point, pageIsMounted is true, authLoading is false, and currentUser exists.
 
     const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
 
     if (currentSessions.length === 0) {
       handleNewChat();
     } else if (!activeChatId || !currentSessions.find(s => s.id === activeChatId)) {
+      // If no active chat or active chat doesn't exist, select the most recent one
       const sortedSessions = [...currentSessions].sort((a, b) => b.createdAt - a.createdAt);
       setActiveChatId(sortedSessions[0]?.id || null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, currentUser, authLoading, router, handleNewChat]);
+  }, [pageIsMounted, currentUser, authLoading, router, handleNewChat]); // chatSessions and activeChatId removed to prevent loops on their own updates
 
 
   const handleMessagesUpdate = useCallback((updatedMessages: ChatMessage[]) => {
@@ -233,14 +245,16 @@ export default function ChatPage() {
 
     const activeSession = chatSessions.find(s => s.id === activeChatId);
 
+    // Only generate title if it's the default one and there are messages
     if (activeSession && (activeSession.title === "Nouveau Chat" || activeSession.title === "Nouvelle Discussion") && activeSession.messages.length > 0) {
+      // Prepare messages for title generation (text parts only)
       const contextMessages = activeSession.messages
-        .slice(0, 2)
+        .slice(0, 2) // Use first 2 messages for context
         .map(msg => ({
           role: msg.role,
           parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
         }))
-        .filter(msg => msg.parts.length > 0);
+        .filter(msg => msg.parts.length > 0); // Ensure there's text content
 
       if (contextMessages.length > 0) {
         setIsGeneratingTitle(true);
@@ -275,7 +289,7 @@ export default function ChatPage() {
         session.id === chatId ? { ...session, title: newTitle.trim() } : session
       )
     );
-    setEditingChatId(null);
+    setEditingChatId(null); // Stop editing mode
     toast({ title: "Chat renommé", description: `Le chat a été renommé en "${newTitle.trim()}".` });
   };
 
@@ -290,9 +304,11 @@ export default function ChatPage() {
       const updatedSessions = prevSessions.filter(s => s.id !== idToDelete);
       if (activeChatId === idToDelete) {
         if (updatedSessions.length > 0) {
+          // Select the most recent chat if the active one was deleted
           setActiveChatId([...updatedSessions].sort((a, b) => b.createdAt - a.createdAt)[0].id);
         } else {
-          setActiveChatId(null); // This will trigger handleNewChat in the useEffect
+          // No chats left, will trigger handleNewChat in useEffect
+          setActiveChatId(null);
         }
       }
       return updatedSessions;
@@ -304,8 +320,24 @@ export default function ChatPage() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // currentUser will become null via onAuthStateChanged, triggering redirection
-      // For immediate UI update and to be safe, reset states:
+      // Clearing local storage items manually on logout,
+      // because currentUser might not update immediately for key generation.
+      // The onAuthStateChanged listener will handle router.push
+      const uid = currentUser?.uid; // Capture UID before currentUser becomes null
+      if (uid) {
+        localStorage.removeItem(getChatSessionsKey(uid));
+        localStorage.removeItem(getActiveChatIdKey(uid));
+        localStorage.removeItem(getUserAvatarKey(uid));
+        localStorage.removeItem(getUserMemoryKey(uid));
+        localStorage.removeItem(getDevOverrideSystemPromptKey(uid));
+        localStorage.removeItem(getDevModelTemperatureKey(uid));
+        localStorage.removeItem(getSidebarCollapsedKey(uid));
+        localStorage.removeItem(getDevSakaiAmbianceEnabledKey(uid));
+        localStorage.removeItem(getAiPersonalityKey(uid));
+        localStorage.removeItem(getWebSearchEnabledKey(uid));
+        localStorage.removeItem(getDeepSakaiEnabledKey(uid));
+      }
+      // Reset local states as well
       setChatSessions([]);
       setActiveChatId(null);
       setUserMemory('');
@@ -318,6 +350,7 @@ export default function ChatPage() {
       setAiPersonality("Sakai (par défaut)");
       setIsWebSearchEnabled(false);
       setIsDeepSakaiEnabled(false);
+
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
       // Redirection is handled by onAuthStateChanged effect.
     } catch (error) {
@@ -334,7 +367,8 @@ export default function ChatPage() {
   const handleDevCodeCheck = () => {
     if (devCodeInput === DEV_ACCESS_CODE) {
       setIsDevCodePromptOpen(false);
-      setDevCodeInput('');
+      setDevCodeInput(''); // Clear code input
+      // Re-sync temp states from potentially updated localStorage values if needed
       if (pageIsMounted && currentUser) {
         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
         setTempModelTemperature(devModelTemperature ?? 0.7);
@@ -354,21 +388,23 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
-    setIsWebSearchEnabled(tempIsWebSearchEnabled);
-    setIsDeepSakaiEnabled(tempIsDeepSakaiEnabled);
+    setIsWebSearchEnabled(tempIsWebSearchEnabled); // Persist from temp state
+    setIsDeepSakaiEnabled(tempIsDeepSakaiEnabled);   // Persist from temp state
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
 
   const handleResetDevSettings = () => {
+    // Reset temporary states in the dialog
     setTempOverrideSystemPrompt('');
     setTempModelTemperature(0.7);
     setTempIsDevSakaiAmbianceEnabled(false);
     setTempIsWebSearchEnabled(false);
     setTempIsDeepSakaiEnabled(false);
     
+    // Persist reset values to localStorage
     setDevOverrideSystemPrompt('');
-    setDevModelTemperature(undefined);
+    setDevModelTemperature(undefined); // Use undefined for default model temp
     setIsDevSakaiAmbianceEnabled(false);
     setIsWebSearchEnabled(false);
     setIsDeepSakaiEnabled(false);
@@ -377,10 +413,16 @@ export default function ChatPage() {
 
   const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev);
 
+  // Determine active chat messages based on activeChatId and chatSessions
   const activeChatMessages = chatSessions.find(session => session.id === activeChatId)?.messages || [];
   const activeChat = chatSessions.find(session => session.id === activeChatId);
-  const sortedChatSessions = [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
+  // Memoize sorted sessions to prevent re-sorting on every render unless chatSessions changes
+  const sortedChatSessions = React.useMemo(() => {
+    return [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
+  }, [chatSessions]);
 
+
+  // Loading state for the page
   if (!pageIsMounted || authLoading) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
@@ -390,6 +432,8 @@ export default function ChatPage() {
     );
   }
 
+  // If not authenticated (currentUser is null after authLoading is false), router.push in effect will handle it.
+  // This explicit check can provide a loader during that brief redirection period.
   if (!currentUser) {
      return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
@@ -423,14 +467,17 @@ export default function ChatPage() {
         sakaiCurrentThought={sakaiCurrentThought}
         isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled}
         userAvatarUrl={userAvatarUrl}
+        // Chat Renaming Props
         editingChatId={editingChatId}
         editingChatTitle={editingChatTitle}
         onStartEditingChatTitle={startEditingChatTitle}
         onRenameChat={handleRenameChat}
         setEditingChatTitle={setEditingChatTitle}
         setEditingChatId={setEditingChatId}
+        // AI Personality Props
         currentPersonality={aiPersonality}
         onPersonalityChange={setAiPersonality}
+        // Options Menu Triggers from Sidebar
         onLogout={handleLogout}
         onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
         onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
@@ -439,17 +486,19 @@ export default function ChatPage() {
         onOpenContactDialog={() => setIsContactDialogOpen(true)}
       />
 
+      {/* Main Chat Area */}
       <main className={`flex-1 flex flex-col relative overflow-hidden bg-background dark:bg-black/20 transition-all duration-300 ease-in-out ${
         isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
       }`}>
-        {/* Topbar Fixe */}
+        {/* Topbar Fixed */}
         <div className={`fixed top-0 right-0 h-16 bg-card/80 backdrop-blur-md border-b border-border/70
                          flex items-center justify-between px-6 z-20
                          ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
                          transition-all duration-300 ease-in-out`}>
           <div className="flex items-center gap-3">
+            {/* Mobile Menu Toggle (PanelRightClose when sidebar is open, or PanelLeftOpen when closed and mobile) */}
             <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-muted-foreground">
-                 <PanelRightClose className="h-5 w-5" />
+                 <PanelRightClose className="h-5 w-5" /> {/* Or use another icon if sidebar is "closed" on mobile */}
             </Button>
             <SakaiLogo className="h-7 w-7 text-primary" />
             <h1 className="text-lg font-semibold text-foreground truncate">
@@ -476,11 +525,11 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Zone de Messages Défilable (avec padding pour topbar/inputbar) */}
-        <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: '6rem' }}> {/* Approx 64px top, 96px bottom */}
+        {/* Scrollable Message Area */}
+        <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: '6rem' }}> {/* Approx 64px top, 96px bottom for fixed bars */}
             {activeChatId && activeChat ? (
             <ChatAssistant
-                key={activeChatId} // Important pour réinitialiser l'état de ChatAssistant si l'ID change
+                key={activeChatId} // Important to re-mount ChatAssistant when chat ID changes
                 initialMessages={activeChatMessages}
                 onMessagesUpdate={handleMessagesUpdate}
                 userMemory={userMemory}
@@ -490,17 +539,21 @@ export default function ChatPage() {
                 currentUserName={currentUser?.displayName}
                 userAvatarUrl={userAvatarUrl}
                 selectedPersonality={aiPersonality}
-                isWebSearchEnabled={isWebSearchEnabled}
-                isDeepSakaiEnabled={isDeepSakaiEnabled}
+                isWebSearchEnabled={isWebSearchEnabled} // Pass down
+                onWebSearchChange={setIsWebSearchEnabled} // Pass down setter
+                isDeepSakaiEnabled={isDeepSakaiEnabled} // Pass down
+                onDeepSakaiChange={setIsDeepSakaiEnabled} // Pass down setter
             />
             ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
+            // Loading state or prompt to create a new chat if no active chat
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16"> {/* Adjust pt-16 if topbar height changes */}
                 {sortedChatSessions.length > 0 ? (
                 <>
                     <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
                     <p>Sélection d'un chat...</p>
                 </>
                 ) : (
+                // This case should ideally be handled by auto-creating a new chat
                 <>
                     <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
                     <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
@@ -513,17 +566,21 @@ export default function ChatPage() {
             )}
         </div>
         
-        {/* Zone de Saisie Fixe */}
+        {/* Fixed Input Area container (ChatAssistant renders its form inside this context, but this div ensures fixed positioning) */}
         {activeChatId && activeChat && (
             <div className={`fixed bottom-0 right-0 border-t border-border/70 bg-card/80 backdrop-blur-md
                             ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
                             transition-all duration-300 ease-in-out z-20`}>
-                 {/* Le formulaire de ChatAssistant est géré par ChatAssistant lui-même,
-                 mais on pourrait aussi le rendre ici si on décomposait ChatAssistant */}
+                 {/* ChatAssistant's form will be rendered by its own logic, 
+                     but its content (the input bar) will be effectively inside this fixed container
+                     due to ChatAssistant being the main child of the scrollable area's sibling.
+                     The ChatAssistant component itself will handle its input bar's rendering within this fixed zone.
+                 */}
             </div>
         )}
       </main>
 
+      {/* Dialogs */}
       <MemoryDialog isOpen={isMemoryDialogOpen} onOpenChange={setIsMemoryDialogOpen} currentMemory={userMemory} onSaveMemory={handleSaveMemory} />
       
       <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
@@ -547,28 +604,103 @@ export default function ChatPage() {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* Developer Access Code Prompt Dialog */}
       <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès pour modifier les paramètres avancés du modèle.</AlertDialogDescription></AlertDialogHeader>
-          <div className="py-2"><Input type="password" placeholder="Code d'accès" value={devCodeInput} onChange={(e) => setDevCodeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}/></div>
-          <AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Veuillez entrer le code d'accès pour modifier les paramètres avancés du modèle.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Input
+              type="password"
+              placeholder="Code d'accès"
+              value={devCodeInput}
+              onChange={(e) => setDevCodeInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* Developer Settings Dialog */}
       <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
         <DialogContent className="sm:max-w-[600px] bg-card">
-          <DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis.</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur
+            </DialogTitle>
+            <DialogDescription>
+              Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis.
+            </DialogDescription>
+          </DialogHeader>
           <div className="grid gap-6 py-4">
-            <div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laisse vide pour utiliser l'invite système par défaut..." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée. La mémoire et la personnalité sont ajoutées après.</p></div>
-            <div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Plus bas = plus factuel. Plus haut = plus créatif. (Défaut: 0.7)</p></div>
-            <div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (Pensées)</Label></div>
-            <div className="flex items-center space-x-2"><Switch id="dev-web-search" checked={tempIsWebSearchEnabled} onCheckedChange={setTempIsWebSearchEnabled}/><Label htmlFor="dev-web-search" className="text-sm font-medium">Activer le Mode Web (Simulé)</Label></div>
-            <div className="flex items-center space-x-2"><Switch id="dev-deep-sakai" checked={tempIsDeepSakaiEnabled} onCheckedChange={setTempIsDeepSakaiEnabled}/><Label htmlFor="dev-deep-sakai" className="text-sm font-medium">Activer le Mode DeepSakai</Label></div>
+            <div className="grid gap-2">
+              <Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label>
+              <Textarea
+                id="dev-system-prompt"
+                placeholder="Laisse vide pour utiliser l'invite système par défaut..."
+                value={tempOverrideSystemPrompt}
+                onChange={(e) => setTempOverrideSystemPrompt(e.target.value)}
+                className="min-h-[150px] text-sm p-3 rounded-md border bg-background"
+                rows={8}
+              />
+              <p className="text-xs text-muted-foreground">L'invite système de base sera remplacée. La mémoire et la personnalité sont ajoutées après.</p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="dev-temperature" className="text-sm font-medium">
+                Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span>
+              </Label>
+              <Slider
+                id="dev-temperature"
+                min={0} max={1} step={0.1}
+                value={[tempModelTemperature]}
+                onValueChange={(value) => setTempModelTemperature(value[0])}
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">Plus bas = plus factuel. Plus haut = plus créatif. (Défaut: 0.7)</p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/>
+              <Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (Pensées)</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch id="dev-web-search" checked={tempIsWebSearchEnabled} onCheckedChange={setTempIsWebSearchEnabled}/>
+              <Label htmlFor="dev-web-search" className="text-sm font-medium">Activer le Mode Web (Simulé)</Label>
+            </div>
+             <div className="flex items-center space-x-2">
+              <Switch id="dev-deep-sakai" checked={tempIsDeepSakaiEnabled} onCheckedChange={setTempIsDeepSakaiEnabled}/>
+              <Label htmlFor="dev-deep-sakai" className="text-sm font-medium">Activer le Mode DeepSakai</Label>
+            </div>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { if (pageIsMounted && currentUser) { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setTempIsWebSearchEnabled(isWebSearchEnabled); setTempIsDeepSakaiEnabled(isDeepSakaiEnabled); } setIsDevSettingsOpen(false); }}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button>
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" onClick={() => {
+                // Reset temp states to persisted states before closing
+                if (pageIsMounted && currentUser) {
+                    setTempOverrideSystemPrompt(devOverrideSystemPrompt);
+                    setTempModelTemperature(devModelTemperature ?? 0.7);
+                    setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
+                    setTempIsWebSearchEnabled(isWebSearchEnabled);
+                    setTempIsDeepSakaiEnabled(isDeepSakaiEnabled);
+                }
+                setIsDevSettingsOpen(false);
+              }}>Annuler</Button>
+            </DialogClose>
+            <Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }
-
