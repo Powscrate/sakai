@@ -19,14 +19,13 @@ export function ClientLayoutWrapper({ children }: ClientLayoutWrapperProps) {
 
   if (!isMounted) {
     // Render nothing on the server and during initial client-side render to prevent hydration mismatch
-    // A simple loader could also be returned here if preferred, but null is safest for hydration.
-    return null; 
+    return null;
   }
 
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="dark" // Changed from "system" to "dark"
+      defaultTheme="dark" // Ensures dark theme is applied by default
       enableSystem
       disableTransitionOnChange
     >
