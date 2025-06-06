@@ -1,3 +1,4 @@
+
 // src/app/profile/page.tsx
 "use client";
 
@@ -13,10 +14,10 @@ import { SakaiLogo } from '@/components/icons/logo';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
-import { Loader2, ArrowLeft, ImageUp, Link2, User as UserIcon } from 'lucide-react'; // Added User as UserIcon
-import useLocalStorage from '@/hooks/use-local-storage';
+import { Loader2, ArrowLeft, ImageUp, User as UserIcon } from 'lucide-react';
+import * as dbManager from '@/lib/indexeddb'; // Import IndexedDB manager
 
-const getUserAvatarKey = (userId: string | undefined) => userId ? `sakaiUserAvatar_${userId}` : 'sakaiUserAvatar_anonymous_fallback';
+const getUserAvatarKeyForDB = (userId: string | undefined) => userId ? `userAvatarUrl_${userId}` : 'userAvatarUrl_anonymous_fallback';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -24,22 +25,28 @@ export default function ProfilePage() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [avatarUrlInput, setAvatarUrlInput] = useState('');
-  
-  // Avatar state will be managed by useLocalStorage once currentUser is available
-  const [avatarUrl, setAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
+  const [avatarUrlInput, setAvatarUrlInput] = useState(''); // For the input field
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState(''); // For display, loaded from DB
 
   const [isLoading, setIsLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
         setDisplayName(user.displayName || '');
         setEmail(user.email || '');
-        // Initialize avatarUrlInput with the stored avatarUrl for this user
-        // This happens after currentUser is set, so useLocalStorage gets the correct key
+        try {
+          const loadedAvatarUrl = await dbManager.getSetting<string>(getUserAvatarKeyForDB(user.uid), '');
+          setCurrentAvatarUrl(loadedAvatarUrl);
+          setAvatarUrlInput(loadedAvatarUrl); // Initialize input with loaded URL
+          setIsDataLoaded(true);
+        } catch (error) {
+            console.error("Error loading avatar from IndexedDB:", error);
+            setIsDataLoaded(true); // Continue even if avatar load fails
+        }
       } else {
         router.push('/auth/login');
       }
@@ -47,13 +54,6 @@ export default function ProfilePage() {
     });
     return () => unsubscribe();
   }, [router]);
-
-  // Effect to sync avatarUrlInput with avatarUrl from localStorage once currentUser is loaded
-  useEffect(() => {
-    if (currentUser && avatarUrl) {
-      setAvatarUrlInput(avatarUrl);
-    }
-  }, [currentUser, avatarUrl]);
 
 
   const handleProfileUpdate = async (e: FormEvent<HTMLFormElement>) => {
@@ -69,21 +69,28 @@ export default function ProfilePage() {
     setIsLoading(true);
     try {
       await updateProfile(currentUser, { displayName: displayName.trim() });
-      // Save avatar URL from input to localStorage
-      if (avatarUrlInput.trim() && (avatarUrlInput.startsWith('http://') || avatarUrlInput.startsWith('https://') || avatarUrlInput.startsWith('data:image'))) {
-        setAvatarUrl(avatarUrlInput.trim());
-         toast({ title: "Profil mis à jour", description: "Votre nom et avatar ont été sauvegardés avec succès." });
-      } else if (!avatarUrlInput.trim() && avatarUrl) {
-        setAvatarUrl(''); // Clear avatar if input is cleared
-        toast({ title: "Profil mis à jour", description: "Votre nom a été sauvegardé et l'avatar a été retiré." });
-      } else if (avatarUrlInput.trim()) {
-        toast({ title: "URL d'avatar invalide", description: "Veuillez entrer une URL valide (http, https, data:image). L'avatar n'a pas été sauvegardé.", variant: "destructive" });
-        toast({ title: "Profil mis à jour", description: "Votre nom a été sauvegardé avec succès (avatar non modifié)." });
-      } else {
-         toast({ title: "Profil mis à jour", description: "Votre nom a été sauvegardé avec succès." });
-      }
+      
+      let newAvatarToSave = avatarUrlInput.trim();
+      let avatarMessage = "";
 
-      if (auth.currentUser) {
+      if (newAvatarToSave && (newAvatarToSave.startsWith('http://') || newAvatarToSave.startsWith('https://') || newAvatarToSave.startsWith('data:image'))) {
+        await dbManager.saveSetting(getUserAvatarKeyForDB(currentUser.uid), newAvatarToSave);
+        setCurrentAvatarUrl(newAvatarToSave);
+        avatarMessage = "et l'avatar ont été sauvegardés.";
+      } else if (!newAvatarToSave && currentAvatarUrl) {
+        await dbManager.saveSetting(getUserAvatarKeyForDB(currentUser.uid), ''); // Clear avatar
+        setCurrentAvatarUrl('');
+        avatarMessage = "et l'avatar a été retiré.";
+      } else if (newAvatarToSave) { // Invalid URL but not empty
+        toast({ title: "URL d'avatar invalide", description: "Veuillez entrer une URL valide (http, https, data:image). L'avatar n'a pas été sauvegardé.", variant: "destructive" });
+        avatarMessage = "(avatar non modifié en raison d'une URL invalide).";
+      } else {
+        avatarMessage = "(avatar non modifié).";
+      }
+      toast({ title: "Profil mis à jour", description: `Votre nom ${avatarMessage}` });
+
+
+      if (auth.currentUser) { // Refresh currentUser state from auth if needed
          setCurrentUser(auth.currentUser); 
          setDisplayName(auth.currentUser.displayName || '');
       }
@@ -109,6 +116,7 @@ export default function ProfilePage() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatarUrlInput(reader.result as string);
+        // Do not set currentAvatarUrl here, only on save.
         toast({ title: "Image chargée", description: "N'oubliez pas de sauvegarder les modifications." });
       };
       reader.readAsDataURL(file);
@@ -116,13 +124,21 @@ export default function ProfilePage() {
   };
 
 
-  if (pageLoading || !currentUser) {
+  if (pageLoading || (currentUser && !isDataLoaded)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">
         <Loader2 className="h-16 w-16 text-primary animate-spin" />
       </div>
     );
   }
+  if (!currentUser) { // Should be caught by onAuthStateChanged, but as a safeguard
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">
+        <p>Redirection vers la connexion...</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-gradient-to-br from-background to-muted/30 p-4 pt-10">
@@ -132,18 +148,16 @@ export default function ProfilePage() {
       <Card className="w-full max-w-md shadow-2xl">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex flex-col items-center">
-            {avatarUrl ? (
+            {currentAvatarUrl ? (
                 <NextImage 
-                    src={avatarUrl} 
+                    src={currentAvatarUrl} 
                     alt="Avatar" 
                     width={80} 
                     height={80} 
                     className="h-20 w-20 rounded-full object-cover border-2 border-primary shadow-md"
                     onError={(e) => {
                         console.warn("Error loading avatar image, falling back or clearing.");
-                        // Potentially clear avatarUrl if image fails to load, or set a fallback
-                        // e.currentTarget.src = 'https://placehold.co/80x80.png?text=Error'; // Example fallback
-                        // setAvatarUrl(''); // Or clear it
+                        setCurrentAvatarUrl(''); // Clear if error
                     }}
                     data-ai-hint="user avatar preview"
                 />
@@ -182,10 +196,10 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-2">
-                <Label htmlFor="avatarUrl">URL de l'avatar (ou téléversez)</Label>
+                <Label htmlFor="avatarUrlInput">URL de l'avatar (ou téléversez)</Label>
                 <div className="flex items-center gap-2">
                     <Input
-                        id="avatarUrl"
+                        id="avatarUrlInput"
                         type="text"
                         placeholder="https://... ou data:image/..."
                         value={avatarUrlInput}

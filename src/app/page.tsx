@@ -17,6 +17,7 @@ import {
 import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { generateChatTitle, type GenerateChatTitleOutput } from '@/ai/flows/generate-chat-title-flow';
 import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flows/generate-sakai-thought-flow';
+import * as dbManager from '@/lib/indexeddb'; // Import IndexedDB manager
 import {
   Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2,
   SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose,
@@ -40,9 +41,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from '@/hooks/use-toast';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase'; // db from firebase is no longer used for app data
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
 import { ThemeToggleButton } from '@/components/chat/theme-toggle-button';
 import {
@@ -68,22 +68,21 @@ interface UploadedFileWrapper {
   id: string;
 }
 
-// Helper functions to get localStorage keys based on user ID
-const getChatSessionsKey = (userId: string | undefined) => userId ? `sakaiChatSessions_v3_${userId}` : `sakaiChatSessions_v3_fallback_no_user`;
-const getActiveChatIdKey = (userId: string | undefined) => userId ? `sakaiActiveChatId_v3_${userId}` : `sakaiActiveChatId_v3_fallback_no_user`;
-const getUserAvatarKey = (userId: string | undefined) => userId ? `sakaiUserAvatar_${userId}` : 'sakaiUserAvatar_fallback';
-const getUserMemoryKey = (userId: string | undefined) => userId ? `sakaiUserMemory_${userId}` : 'sakaiUserMemory_fallback';
-const getDevOverrideSystemPromptKey = (userId: string | undefined) => userId ? `sakaiDevOverrideSystemPrompt_${userId}` : 'sakaiDevOverrideSystemPrompt_fallback';
-const getDevModelTemperatureKey = (userId: string | undefined) => userId ? `sakaiDevModelTemperature_${userId}` : 'sakaiDevModelTemperature_fallback';
-const getSidebarCollapsedKey = (userId: string | undefined) => userId ? `sakaiSidebarCollapsed_v1_${userId}` : `sakaiSidebarCollapsed_v1_fallback`;
-const getDevSakaiAmbianceEnabledKey = (userId: string | undefined) => userId ? `sakaiDevAmbianceEnabled_${userId}` : 'sakaiDevAmbianceEnabled_fallback';
-const getAiPersonalityKey = (userId: string | undefined) => userId ? `sakaiAiPersonality_${userId}` : 'sakaiAiPersonality_fallback';
-const getWebSearchEnabledKey = (userId: string | undefined) => userId ? `sakaiWebSearchEnabled_v2_${userId}` : 'sakaiWebSearchEnabled_v2_fallback';
-const getDeepSakaiEnabledKey = (userId: string | undefined) => userId ? `sakaiDeepSakaiEnabled_v2_${userId}` : 'sakaiDeepSakaiEnabled_v2_fallback';
+// IndexedDB User Setting Keys
+const getActiveChatIdKeyForDB = (userId: string) => `activeChatId_${userId}`;
+const getUserAvatarKeyForDB = (userId: string) => `userAvatarUrl_${userId}`;
+const getUserMemoryKeyForDB = (userId: string) => `userMemory_${userId}`;
+const getDevOverrideSystemPromptKeyForDB = (userId: string) => `devOverrideSystemPrompt_${userId}`;
+const getDevModelTemperatureKeyForDB = (userId: string) => `devModelTemperature_${userId}`;
+const getSidebarCollapsedKeyForDB = (userId: string) => `sidebarCollapsed_${userId}`;
+const getDevSakaiAmbianceEnabledKeyForDB = (userId: string) => `devSakaiAmbianceEnabled_${userId}`;
+const getAiPersonalityKeyForDB = (userId: string) => `aiPersonality_${userId}`;
+const getWebSearchEnabledKeyForDB = (userId: string) => `webSearchEnabled_${userId}`;
+const getDeepSakaiEnabledKeyForDB = (userId: string) => `deepSakaiEnabled_${userId}`;
 
 
 const DEV_ACCESS_CODE = "1234566";
-const INPUT_BAR_ESTIMATED_MAX_HEIGHT = '13rem'; // For padding-bottom of message area
+const INPUT_BAR_ESTIMATED_MAX_HEIGHT = '13rem'; 
 
 export default function ChatPage() {
   const [pageIsMounted, setPageIsMounted] = useState(false);
@@ -92,21 +91,23 @@ export default function ChatPage() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
-  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
-  const [userAvatarUrl, setUserAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
-  const [userMemory, setUserMemory] = useLocalStorage<string>(getUserMemoryKey(currentUser?.uid), '');
+  // States previously managed by useLocalStorage, now useState + IndexedDB
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [activeChatId, setActiveChatIdState] = useState<string | null>(null);
+  const [userAvatarUrl, setUserAvatarUrlState] = useState<string>('');
+  const [userMemory, setUserMemoryState] = useState<string>('');
   
-  const [devOverrideSystemPrompt, setDevOverrideSystemPrompt] = useLocalStorage<string>(getDevOverrideSystemPromptKey(currentUser?.uid), '');
-  const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
-  const [isDevSakaiAmbianceEnabled, setIsDevSakaiAmbianceEnabled] = useLocalStorage<boolean>(getDevSakaiAmbianceEnabledKey(currentUser?.uid), false);
+  const [devOverrideSystemPrompt, setDevOverrideSystemPromptState] = useState<string>('');
+  const [devModelTemperature, setDevModelTemperatureState] = useState<number | undefined>(undefined);
+  const [isDevSakaiAmbianceEnabled, setIsDevSakaiAmbianceEnabledState] = useState<boolean>(false);
   
-  const [isWebSearchEnabled, setIsWebSearchEnabled] = useLocalStorage<boolean>(getWebSearchEnabledKey(currentUser?.uid), false);
-  const [isDeepSakaiEnabled, setIsDeepSakaiEnabled] = useLocalStorage<boolean>(getDeepSakaiEnabledKey(currentUser?.uid), false);
+  const [isWebSearchEnabled, setIsWebSearchEnabledState] = useState<boolean>(false);
+  const [isDeepSakaiEnabled, setIsDeepSakaiEnabledState] = useState<boolean>(false);
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>(getSidebarCollapsedKey(currentUser?.uid), false);
-  const [aiPersonality, setAiPersonality] = useLocalStorage<AIPersonality>(getAiPersonalityKey(currentUser?.uid), "Sakai (par défaut)");
+  const [isSidebarCollapsed, setIsSidebarCollapsedState] = useState<boolean>(false);
+  const [aiPersonality, setAiPersonalityState] = useState<AIPersonality>("Sakai (par défaut)");
 
   const [sakaiCurrentThought, setSakaiCurrentThought] = useState<string | null>(null);
   const thoughtIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,43 +146,157 @@ export default function ChatPage() {
   ];
 
 
-  useEffect(() => {
-    setPageIsMounted(true);
-  }, []);
+  useEffect(() => setPageIsMounted(true), []);
 
+  // Auth state change
   useEffect(() => {
     if (!pageIsMounted) return;
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
       } else {
-        localStorage.removeItem(getChatSessionsKey(currentUser?.uid));
-        localStorage.removeItem(getActiveChatIdKey(currentUser?.uid));
-        localStorage.removeItem(getUserAvatarKey(currentUser?.uid));
-        localStorage.removeItem(getUserMemoryKey(currentUser?.uid));
-        localStorage.removeItem(getDevOverrideSystemPromptKey(currentUser?.uid));
-        localStorage.removeItem(getDevModelTemperatureKey(currentUser?.uid));
-        localStorage.removeItem(getSidebarCollapsedKey(currentUser?.uid));
-        localStorage.removeItem(getDevSakaiAmbianceEnabledKey(currentUser?.uid));
-        localStorage.removeItem(getAiPersonalityKey(currentUser?.uid));
-        localStorage.removeItem(getWebSearchEnabledKey(currentUser?.uid)); 
-        localStorage.removeItem(getDeepSakaiEnabledKey(currentUser?.uid)); 
         setCurrentUser(null);
+        setIsDataLoaded(false); // Reset data loaded flag
+        setChatSessions([]); // Clear local state
+        setActiveChatIdState(null);
+        // Clear other states...
         router.push('/auth/login');
       }
       setAuthLoading(false);
     });
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageIsMounted, router]);
 
+  // Initial data loading from IndexedDB
   useEffect(() => {
-    if (pageIsMounted && currentUser && !authLoading) {
-      setTempOverrideSystemPrompt(devOverrideSystemPrompt);
-      setTempModelTemperature(devModelTemperature ?? 0.7);
-      setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
+    if (!pageIsMounted || !currentUser || authLoading || isDataLoaded) return;
+
+    const loadData = async () => {
+      console.log("Attempting to load data from IndexedDB for user:", currentUser.uid);
+      try {
+        const [
+          loadedSessions, loadedActiveChatId, loadedUserAvatarUrl, loadedUserMemory,
+          loadedDevOverride, loadedDevTemp, loadedDevAmbiance,
+          loadedWebSearch, loadedDeepSakai, loadedSidebarCollapsed, loadedPersonality,
+        ] = await Promise.all([
+          dbManager.getAllChatSessions(currentUser.uid),
+          dbManager.getSetting<string | null>(getActiveChatIdKeyForDB(currentUser.uid), null),
+          dbManager.getSetting<string>(getUserAvatarKeyForDB(currentUser.uid), ''),
+          dbManager.getSetting<string>(getUserMemoryKeyForDB(currentUser.uid), ''),
+          dbManager.getSetting<string>(getDevOverrideSystemPromptKeyForDB(currentUser.uid), ''),
+          dbManager.getSetting<number | undefined>(getDevModelTemperatureKeyForDB(currentUser.uid), undefined),
+          dbManager.getSetting<boolean>(getDevSakaiAmbianceEnabledKeyForDB(currentUser.uid), false),
+          dbManager.getSetting<boolean>(getWebSearchEnabledKeyForDB(currentUser.uid), false),
+          dbManager.getSetting<boolean>(getDeepSakaiEnabledKeyForDB(currentUser.uid), false),
+          dbManager.getSetting<boolean>(getSidebarCollapsedKeyForDB(currentUser.uid), false),
+          dbManager.getSetting<AIPersonality>(getAiPersonalityKeyForDB(currentUser.uid), "Sakai (par défaut)"),
+        ]);
+
+        setChatSessions(loadedSessions);
+        setActiveChatIdState(loadedActiveChatId);
+        setUserAvatarUrlState(loadedUserAvatarUrl);
+        setUserMemoryState(loadedUserMemory);
+        setDevOverrideSystemPromptState(loadedDevOverride);
+        setDevModelTemperatureState(loadedDevTemp);
+        setIsDevSakaiAmbianceEnabledState(loadedDevAmbiance);
+        setIsWebSearchEnabledState(loadedWebSearch);
+        setIsDeepSakaiEnabledState(loadedDeepSakai);
+        setIsSidebarCollapsedState(loadedSidebarCollapsed);
+        setAiPersonalityState(loadedPersonality);
+
+        setTempOverrideSystemPrompt(loadedDevOverride);
+        setTempModelTemperature(loadedDevTemp ?? 0.7);
+        setTempIsDevSakaiAmbianceEnabled(loadedDevAmbiance);
+
+
+        if (loadedSessions.length === 0) {
+          await handleNewChat(true); // Pass true to indicate it's an initial new chat
+        } else if (!loadedActiveChatId || !loadedSessions.find(s => s.id === loadedActiveChatId)) {
+          const newActiveId = loadedSessions[0]?.id || null; // Already sorted by getAllChatSessions
+          setActiveChatIdState(newActiveId);
+          if (newActiveId) {
+            await dbManager.saveSetting(getActiveChatIdKeyForDB(currentUser.uid), newActiveId);
+          }
+        }
+        setIsDataLoaded(true);
+        console.log("Data loaded successfully from IndexedDB.");
+      } catch (error) {
+        console.error("Error loading data from IndexedDB:", error);
+        toast({ title: "Erreur de chargement des données", description: "Certaines données locales n'ont pas pu être chargées. Certaines fonctionnalités peuvent être affectées.", variant: "destructive" });
+        setIsDataLoaded(true); // Still mark as loaded to unblock UI, app will use defaults
+      }
+    };
+    if (currentUser && !isDataLoaded) {
+       loadData();
     }
-  }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, pageIsMounted, currentUser, authLoading]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageIsMounted, currentUser, authLoading, isDataLoaded, toast]); // handleNewChat is memoized
+
+
+  // Wrapped state setters for IndexedDB persistence
+  const setActiveChatId = useCallback(async (id: string | null) => {
+    setActiveChatIdState(id);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getActiveChatIdKeyForDB(currentUser.uid), id);
+    }
+  }, [currentUser, isDataLoaded]);
+
+  const setUserMemory = useCallback(async (memory: string) => {
+    setUserMemoryState(memory);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getUserMemoryKeyForDB(currentUser.uid), memory);
+    }
+  }, [currentUser, isDataLoaded]);
+
+  const setDevOverrideSystemPrompt = useCallback(async (prompt: string) => {
+    setDevOverrideSystemPromptState(prompt);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getDevOverrideSystemPromptKeyForDB(currentUser.uid), prompt);
+    }
+  }, [currentUser, isDataLoaded]);
+  
+  const setDevModelTemperature = useCallback(async (temp: number | undefined) => {
+    setDevModelTemperatureState(temp);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getDevModelTemperatureKeyForDB(currentUser.uid), temp);
+    }
+  }, [currentUser, isDataLoaded]);
+
+  const setIsDevSakaiAmbianceEnabled = useCallback(async (enabled: boolean) => {
+    setIsDevSakaiAmbianceEnabledState(enabled);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getDevSakaiAmbianceEnabledKeyForDB(currentUser.uid), enabled);
+    }
+  }, [currentUser, isDataLoaded]);
+
+  const setIsWebSearchEnabled = useCallback(async (enabled: boolean) => {
+    setIsWebSearchEnabledState(enabled);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getWebSearchEnabledKeyForDB(currentUser.uid), enabled);
+    }
+  }, [currentUser, isDataLoaded]);
+
+  const setIsDeepSakaiEnabled = useCallback(async (enabled: boolean) => {
+    setIsDeepSakaiEnabledState(enabled);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getDeepSakaiEnabledKeyForDB(currentUser.uid), enabled);
+    }
+  }, [currentUser, isDataLoaded]);
+  
+  const setIsSidebarCollapsed = useCallback(async (collapsed: boolean | ((prevState: boolean) => boolean)) => {
+    const newCollapsedState = typeof collapsed === 'function' ? collapsed(isSidebarCollapsed) : collapsed;
+    setIsSidebarCollapsedState(newCollapsedState);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getSidebarCollapsedKeyForDB(currentUser.uid), newCollapsedState);
+    }
+  }, [currentUser, isDataLoaded, isSidebarCollapsed]);
+
+  const setAiPersonality = useCallback(async (personality: AIPersonality) => {
+    setAiPersonalityState(personality);
+    if (currentUser && isDataLoaded) {
+      await dbManager.saveSetting(getAiPersonalityKeyForDB(currentUser.uid), personality);
+    }
+  }, [currentUser, isDataLoaded]);
 
 
   const fetchSakaiThought = useCallback(async () => {
@@ -197,7 +312,7 @@ export default function ChatPage() {
   }, [isDevSakaiAmbianceEnabled, pageIsMounted, currentUser]);
 
   useEffect(() => {
-    if (isDevSakaiAmbianceEnabled && pageIsMounted && currentUser) {
+    if (isDevSakaiAmbianceEnabled && pageIsMounted && currentUser && isDataLoaded) {
       fetchSakaiThought();
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
       thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000);
@@ -208,9 +323,9 @@ export default function ChatPage() {
     return () => {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
     };
-  }, [isDevSakaiAmbianceEnabled, fetchSakaiThought, pageIsMounted, currentUser]);
+  }, [isDevSakaiAmbianceEnabled, fetchSakaiThought, pageIsMounted, currentUser, isDataLoaded]);
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async (isInitial: boolean = false) => {
     if (!currentUser) return;
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
@@ -221,47 +336,41 @@ export default function ChatPage() {
       messages: [],
     };
     setChatSessions(prevSessions => [newChatSession, ...prevSessions].sort((a, b) => b.createdAt - a.createdAt));
-    setActiveChatId(newChatId);
+    setActiveChatId(newChatId); // This now calls the wrapped version that saves to DB
+    
+    await dbManager.addOrUpdateChatSession(newChatSession);
+    // setActiveChatId above already saves the new active ID
+
     setInput('');
     setUploadedFiles([]);
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
+    if (!isInitial && isMobileMenuOpen) setIsMobileMenuOpen(false);
+  }, [currentUser, setActiveChatId, isMobileMenuOpen]);
 
-  useEffect(() => {
-    if (!pageIsMounted || authLoading || !currentUser) return;
-    const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
-    if (currentSessions.length === 0) {
-      handleNewChat();
-    } else if (!activeChatId || !currentSessions.find(s => s.id === activeChatId)) {
-      const sortedSessions = [...currentSessions].sort((a, b) => b.createdAt - a.createdAt);
-      setActiveChatId(sortedSessions[0]?.id || null);
+
+  const updateMessagesForActiveChat = useCallback(async (updatedMessages: ChatMessage[], newActiveChatIdToUpdate?: string) => {
+    const targetChatId = newActiveChatIdToUpdate || activeChatId;
+    if (!currentUser || !targetChatId) return;
+
+    let sessionToUpdate: ChatSession | undefined;
+    setChatSessions(prevSessions => {
+      const newSessions = prevSessions.map(session => {
+        if (session.id === targetChatId) {
+          sessionToUpdate = { ...session, messages: updatedMessages };
+          return sessionToUpdate;
+        }
+        return session;
+      });
+      return newSessions; // Already sorted by initial load or new chat logic
+    });
+
+    if (sessionToUpdate) {
+      await dbManager.addOrUpdateChatSession(sessionToUpdate);
     }
-  }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
-  
+  }, [currentUser, activeChatId]);
+
+  // Generate Chat Title
   useEffect(() => {
-    if (activeChatId) {
-        setInput('');
-        setUploadedFiles([]);
-    }
-  }, [activeChatId, isFeaturesPopoverOpen]);
-
-
-  const updateMessagesForActiveChat = useCallback((updatedMessages: ChatMessage[], newActiveChatId?: string) => {
-    if (!currentUser) return;
-    const targetChatId = newActiveChatId || activeChatId;
-    if (!targetChatId) return;
-
-    setChatSessions(prevSessions =>
-      prevSessions.map(session =>
-        session.id === targetChatId
-          ? { ...session, messages: updatedMessages }
-          : session
-      )
-    );
-  }, [currentUser, activeChatId, setChatSessions]);
-
-  useEffect(() => {
-    if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted || isSendingMessage) return;
+    if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted || isSendingMessage || !isDataLoaded) return;
 
     const currentChatIdForTitleGen = activeChatId; 
     const activeSession = chatSessions.find(s => s.id === currentChatIdForTitleGen);
@@ -278,29 +387,45 @@ export default function ChatPage() {
       if (contextMessages.length > 0) {
         setIsGeneratingTitle(true);
         generateChatTitle({ messages: contextMessages })
-          .then(titleOutput => {
+          .then(async titleOutput => {
             if (titleOutput.title && !titleOutput.error) {
+              let sessionToUpdate: ChatSession | undefined;
               setChatSessions(prevSessions =>
-                prevSessions.map(s =>
-                  s.id === currentChatIdForTitleGen ? { ...s, title: titleOutput.title } : s 
-                )
+                prevSessions.map(s => {
+                  if (s.id === currentChatIdForTitleGen) {
+                    sessionToUpdate = { ...s, title: titleOutput.title };
+                    return sessionToUpdate;
+                  }
+                  return s;
+                })
               );
+              if (sessionToUpdate) {
+                await dbManager.addOrUpdateChatSession(sessionToUpdate);
+              }
             } else if (titleOutput.error) console.warn("SACAI_CLIENT: Error generating chat title:", titleOutput.error);
           })
           .catch(err => console.error("SACAI_CLIENT: Error in generateChatTitle API call:", err))
           .finally(() => setIsGeneratingTitle(false));
       }
     }
-  }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, setChatSessions, isSendingMessage]);
+  }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, isSendingMessage, isDataLoaded]);
 
 
-  const handleRenameChat = (chatId: string, newTitle: string) => {
+  const handleRenameChat = async (chatId: string, newTitle: string) => {
     if (!currentUser || !newTitle.trim()) return;
+    let sessionToUpdate: ChatSession | undefined;
     setChatSessions(prevSessions =>
-      prevSessions.map(session =>
-        session.id === chatId ? { ...session, title: newTitle.trim() } : session
-      )
+      prevSessions.map(session => {
+        if (session.id === chatId) {
+          sessionToUpdate = { ...session, title: newTitle.trim() };
+          return sessionToUpdate;
+        }
+        return session;
+      })
     );
+    if (sessionToUpdate) {
+      await dbManager.addOrUpdateChatSession(sessionToUpdate);
+    }
     setEditingChatId(null);
     toast({ title: "Chat renommé", description: `Le chat a été renommé en "${newTitle.trim()}".` });
   };
@@ -310,14 +435,21 @@ export default function ChatPage() {
     setEditingChatTitle(chat.title);
   };
 
-  const handleDeleteChat = (idToDelete: string) => {
+  const handleDeleteChat = async (idToDelete: string) => {
     if (!currentUser) return;
+    
+    await dbManager.deleteChatSession(idToDelete);
+    const prevActiveId = activeChatId;
+
     setChatSessions(prevSessions => {
       const updatedSessions = prevSessions.filter(s => s.id !== idToDelete);
-      if (activeChatId === idToDelete) {
+      if (prevActiveId === idToDelete) {
         if (updatedSessions.length > 0) {
+          // setActiveChatId will persist the new active ID
           setActiveChatId([...updatedSessions].sort((a, b) => b.createdAt - a.createdAt)[0].id);
-        } else setActiveChatId(null);
+        } else {
+          setActiveChatId(null);
+        }
       }
       return updatedSessions;
     });
@@ -326,25 +458,13 @@ export default function ChatPage() {
 
   const handleLogout = async () => {
     try {
+      const uid = currentUser?.uid;
       await signOut(auth);
-      const uid = currentUser?.uid; 
       if (uid) {
-        localStorage.removeItem(getChatSessionsKey(uid));
-        localStorage.removeItem(getActiveChatIdKey(uid));
-        localStorage.removeItem(getUserAvatarKey(uid));
-        localStorage.removeItem(getUserMemoryKey(uid));
-        localStorage.removeItem(getDevOverrideSystemPromptKey(uid));
-        localStorage.removeItem(getDevModelTemperatureKey(uid));
-        localStorage.removeItem(getSidebarCollapsedKey(uid));
-        localStorage.removeItem(getDevSakaiAmbianceEnabledKey(uid));
-        localStorage.removeItem(getAiPersonalityKey(uid));
-        localStorage.removeItem(getWebSearchEnabledKey(uid));
-        localStorage.removeItem(getDeepSakaiEnabledKey(uid));
+        await dbManager.deleteAllChatSessionsForUser(uid);
+        await dbManager.deleteAllUserSettingsForUser(uid); // This deletes keys ending with _UID
       }
-      setChatSessions([]);
-      setActiveChatId(null);
-      setCurrentUser(null);
-      setAuthLoading(true); 
+      // States are reset by onAuthStateChanged
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
     } catch (error) {
       console.error("Logout error:", error);
@@ -353,14 +473,14 @@ export default function ChatPage() {
   };
 
   const handleSaveMemory = (newMemory: string) => {
-    setUserMemory(newMemory);
+    setUserMemory(newMemory); // Wrapped setter, saves to DB
     toast({ title: "Mémoire sauvegardée", description: "Sakai utilisera ces informations." });
   };
 
   const handleDevCodeCheck = () => {
     if (devCodeInput === DEV_ACCESS_CODE) {
       setIsDevCodePromptOpen(false); setDevCodeInput(''); 
-      if (pageIsMounted && currentUser) {
+      if (pageIsMounted && currentUser) { // Values already loaded into state
         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
         setTempModelTemperature(devModelTemperature ?? 0.7);
         setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
@@ -374,6 +494,7 @@ export default function ChatPage() {
   };
 
   const handleSaveDevSettings = () => {
+    // Use wrapped setters to persist to DB
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
@@ -383,16 +504,18 @@ export default function ChatPage() {
 
   const handleResetDevSettings = () => {
     setTempOverrideSystemPrompt(''); setTempModelTemperature(0.7); setTempIsDevSakaiAmbianceEnabled(false);
+    // Use wrapped setters to persist to DB
     setDevOverrideSystemPrompt(''); setDevModelTemperature(undefined); setIsDevSakaiAmbianceEnabled(false);
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
-  const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev);
+  const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev); // Wrapped setter
 
   const activeChat = chatSessions.find(session => session.id === activeChatId);
   
   const sortedChatSessions = useMemo(() => {
-    return [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
+    // chatSessions are already sorted by getAllChatSessions or handleNewChat
+    return chatSessions;
   }, [chatSessions]);
 
 
@@ -439,7 +562,7 @@ export default function ChatPage() {
     
     const currentMessages = chatSessions.find(s => s.id === activeChatId)?.messages || [];
     let finalUserAndAssistantMessages = [...currentMessages, userPromptMessage, assistantPlaceholderMessage];
-    updateMessagesForActiveChat(finalUserAndAssistantMessages);
+    await updateMessagesForActiveChat(finalUserAndAssistantMessages); // Persists to DB
     
     let finalAssistantMessage: ChatMessage | null = null;
     try {
@@ -450,7 +573,7 @@ export default function ChatPage() {
       finalAssistantMessage = { role: 'model' as 'model', parts: [{ type: 'text' as 'text', text: `Erreur : ${(error as Error)?.message || "Erreur inconnue."}` }], id: imageGenPlaceholderId, createdAt: Date.now() };
     } finally {
       if (finalAssistantMessage) {
-        updateMessagesForActiveChat(finalUserAndAssistantMessages.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
+        await updateMessagesForActiveChat(finalUserAndAssistantMessages.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
       }
       setIsSendingMessage(false);
     }
@@ -494,19 +617,23 @@ export default function ChatPage() {
     
     const initialMessagesForThisChat = chatSessions.find(s => s.id === activeChatId)?.messages || [];
     const messagesForImmediateDisplay = [...initialMessagesForThisChat, newUserMessage, assistantPlaceholderMessage];
-    updateMessagesForActiveChat(messagesForImmediateDisplay);
+    await updateMessagesForActiveChat(messagesForImmediateDisplay); // Persists to DB
     
     const historyForApi = [...initialMessagesForThisChat, newUserMessage];
     setInput(''); clearAllUploadedFiles();
     let accumulatedText = ""; let finalAssistantMessage: ChatMessage | null = null;
 
     try {
-      const readableStream = await streamChatAssistant({
-        history: historyForApi, memory: userMemory, overrideSystemPrompt: devOverrideSystemPrompt,
-        temperature: devModelTemperature, personality: aiPersonality, 
+      const streamInput = {
+        history: historyForApi, 
+        memory: userMemory, 
+        overrideSystemPrompt: devOverrideSystemPrompt,
+        temperature: devModelTemperature, 
+        personality: aiPersonality, 
         enableWebSearch: isWebSearchEnabled, 
         enableDeepSakai: isDeepSakaiEnabled, 
-      });
+      };
+      const readableStream = await streamChatAssistant(streamInput);
       const reader = readableStream.getReader();
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -515,7 +642,7 @@ export default function ChatPage() {
         if (chatChunk.error) { accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`; toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" }); break; }
         if (chatChunk.text) {
           accumulatedText += chatChunk.text;
-          updateMessagesForActiveChat(messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { ...msg, parts: [{type: 'text', text: accumulatedText }] } : msg));
+          await updateMessagesForActiveChat(messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { ...msg, parts: [{type: 'text', text: accumulatedText }] } : msg));
         }
       }
       finalAssistantMessage = { role: 'model', parts: [{type: 'text' as 'text', text: accumulatedText }], id: assistantMessageId, createdAt: Date.now() };
@@ -530,7 +657,7 @@ export default function ChatPage() {
         const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
         messagesForPersistence = messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { role: 'model', parts: [{ type: 'text', text: fallbackErrorMsg }], id: assistantMessageId, createdAt: Date.now() } : msg);
       }
-      updateMessagesForActiveChat(messagesForPersistence);
+      await updateMessagesForActiveChat(messagesForPersistence); // Final update, persists to DB
       setIsSendingMessage(false); 
       setCurrentStreamingMessageId(null);
     }
@@ -541,7 +668,7 @@ export default function ChatPage() {
       toast({ title: "Aucun chat actif", description: "Impossible d'exporter.", variant: "destructive" });
       return;
     }
-
+    // ... (rest of the export logic is fine)
     let chatContent = `Titre: ${activeChat.title}\n`;
     chatContent += `Date de création: ${new Date(activeChat.createdAt).toLocaleString('fr-FR')}\n\n`;
     chatContent += "---- MESSAGES ----\n\n";
@@ -555,8 +682,7 @@ export default function ChatPage() {
         } else if (part.type === 'image' && part.imageDataUri) {
           let filename = 'media_attache';
           try {
-            // Try to get a name from common data URI patterns or mime type
-            if (part.imageDataUri.includes('name=')) { // Very specific case for some data URIs
+            if (part.imageDataUri.includes('name=')) { 
                 const nameMatch = part.imageDataUri.match(/name=([^;,]+)/);
                 if (nameMatch && nameMatch[1]) filename = decodeURIComponent(nameMatch[1]);
             } else if (part.mimeType) {
@@ -574,7 +700,6 @@ export default function ChatPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    // Sanitize title for filename
     const safeTitle = activeChat.title.replace(/[^a-z0-9_.-]/gi, '_').substring(0, 50);
     link.download = `Sakai_Chat_${safeTitle || 'export'}_${new Date().toISOString().split('T')[0]}.txt`;
     document.body.appendChild(link);
@@ -586,7 +711,7 @@ export default function ChatPage() {
   };
 
 
-  if (!pageIsMounted || authLoading) {
+  if (!pageIsMounted || authLoading || !isDataLoaded && currentUser) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="mt-4 text-muted-foreground">Chargement de Sakai...</p>
@@ -610,26 +735,41 @@ export default function ChatPage() {
     { label: "Contacter le créateur", icon: Contact, action: () => setIsContactDialogOpen(true) },
     { label: "À propos de Sakai", icon: Info, action: () => setIsAboutDialogOpen(true) },
   ];
+  
+  // Conditional rendering for Sidebar pass-through props
+  const sidebarProps = {
+    chatSessions:sortedChatSessions, 
+    activeChatId:activeChatId,
+    onSelectChat: (id: string) => { setActiveChatId(id); if (isMobileMenuOpen) setIsMobileMenuOpen(false); },
+    onNewChat: () => handleNewChat(false), 
+    onDeleteChat:handleDeleteChat, 
+    isMobileMenuOpen:isMobileMenuOpen,
+    setIsMobileMenuOpen:setIsMobileMenuOpen, 
+    isSidebarCollapsed:isSidebarCollapsed,
+    toggleSidebarCollapse:toggleSidebarCollapse, 
+    sakaiCurrentThought:sakaiCurrentThought,
+    isDevSakaiAmbianceEnabled:isDevSakaiAmbianceEnabled, 
+    userAvatarUrl:userAvatarUrl,
+    editingChatId:editingChatId, 
+    editingChatTitle:editingChatTitle,
+    onStartEditingChatTitle:startEditingChatTitle, 
+    onRenameChat:handleRenameChat,
+    setEditingChatTitle:setEditingChatTitle, 
+    setEditingChatId:setEditingChatId,
+    currentPersonality:aiPersonality, 
+    onPersonalityChange:setAiPersonality, // Wrapped setter
+    onLogout:handleLogout, 
+    onOpenMemoryDialog:() => setIsMemoryDialogOpen(true),
+    onOpenDevSettingsDialog:() => setIsDevCodePromptOpen(true),
+    onOpenFeaturesDialog:() => setIsFeaturesDialogOpen(true),
+    onOpenAboutDialog:() => setIsAboutDialogOpen(true),
+    onOpenContactDialog:() => setIsContactDialogOpen(true),
+  };
+
 
   return (
     <div className="flex h-screen bg-muted/30 dark:bg-background text-foreground">
-      <ChatSidebar
-        chatSessions={sortedChatSessions} activeChatId={activeChatId}
-        onSelectChat={(id) => { setActiveChatId(id); if (isMobileMenuOpen) setIsMobileMenuOpen(false); }}
-        onNewChat={handleNewChat} onDeleteChat={handleDeleteChat} isMobileMenuOpen={isMobileMenuOpen}
-        setIsMobileMenuOpen={setIsMobileMenuOpen} isSidebarCollapsed={isSidebarCollapsed}
-        toggleSidebarCollapse={toggleSidebarCollapse} sakaiCurrentThought={sakaiCurrentThought}
-        isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled} userAvatarUrl={userAvatarUrl}
-        editingChatId={editingChatId} editingChatTitle={editingChatTitle}
-        onStartEditingChatTitle={startEditingChatTitle} onRenameChat={handleRenameChat}
-        setEditingChatTitle={setEditingChatTitle} setEditingChatId={setEditingChatId}
-        currentPersonality={aiPersonality} onPersonalityChange={setAiPersonality}
-        onLogout={handleLogout} onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
-        onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
-        onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
-        onOpenAboutDialog={() => setIsAboutDialogOpen(true)}
-        onOpenContactDialog={() => setIsContactDialogOpen(true)}
-      />
+      <ChatSidebar {...sidebarProps} />
 
       <main className={`flex-1 flex flex-col relative overflow-hidden bg-background dark:bg-black/20 transition-all duration-300 ease-in-out ${
         isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
@@ -681,13 +821,14 @@ export default function ChatPage() {
             />
             ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
-                {sortedChatSessions.length > 0 ? (
+                {chatSessions.length > 0 && isDataLoaded ? ( // Check isDataLoaded
                 <><Loader2 className="h-10 w-10 animate-spin text-primary mb-4" /><p>Sélection d'un chat...</p></>
-                ) : (
+                ) : ( isDataLoaded && // Check isDataLoaded before showing new chat button
                 <><MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
                     <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
-                    <Button onClick={handleNewChat} className="mt-4"><Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat</Button></>
+                    <Button onClick={() => handleNewChat(false)} className="mt-4"><Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat</Button></>
                 )}
+                 {!isDataLoaded && !authLoading && <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" /> /* Show loader if data not yet loaded but auth is done */}
             </div>
             )}
         </div>
@@ -765,8 +906,7 @@ export default function ChatPage() {
       <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p><strong>Sakai</strong> est une Intelligence Artificielle conversationnelle de nouvelle génération, fièrement conçue et développée par <strong>MAMPIONONTIAKO Tantely Etienne Théodore</strong>, un développeur et passionné d'IA originaire de Madagascar.</p><p className="mt-2">Mon objectif est de fournir une assistance intelligente, créative et personnalisée. Je suis construit avec les dernières technologies, notamment Genkit de Google pour mes capacités IA, et une interface utilisateur moderne bâtie avec Next.js et React.</p><p className="mt-2">Je suis en constante évolution. Vos interactions m'aident à apprendre et à m'améliorer. Merci d'utiliser Sakai !</p><p className="mt-3 text-xs">Version: 1.0.0 - Sakai Chat</p></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Mail className="h-5 w-5 text-primary"/>Contacter le créateur</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Pour toute question, suggestion, ou si vous souhaitez simplement discuter du projet Sakai, vous pouvez contacter son créateur, <strong>MAMPIONONTIAKO Tantely Etienne Théodore</strong> :</p><ul className="list-disc list-inside mt-3 space-y-1"><li><strong>Email :</strong> <a href="mailto:tantelyetumamp@gmail.com" className="text-primary hover:underline">tantelyetumamp@gmail.com</a></li><li><strong>LinkedIn :</strong> <a href="https://www.linkedin.com/in/tantely-etienne-théodore-mampionontiako-179b73285/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Profil LinkedIn</a></li><li><strong>GitHub :</strong> <a href="https://github.com/tantelyeti" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Profil GitHub</a></li></ul></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès pour modifier les paramètres avancés de Sakai (prompt système, température du modèle, etc.). Les modes Web et DeepSakai sont accessibles directement via les icônes près du champ de saisie.</AlertDialogDescription></AlertDialogHeader><div className="py-2"><Input type="password" placeholder="Code d'accès" value={devCodeInput} onChange={(e) => setDevCodeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}/></div><AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}><DialogContent className="sm:max-w-[600px] bg-card"><DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés pour le comportement de Sakai. Ces paramètres sont pour les développeurs et peuvent affecter la performance ou la pertinence des réponses.</DialogDescription></DialogHeader><div className="grid gap-6 py-4"><div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laissez vide pour utiliser l'invite système par défaut de Sakai. Si rempli, cela surchargera complètement le prompt par défaut." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée si ce champ est rempli.</p></div><div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Contrôle l'aléa des réponses. Plus bas = plus déterministe/factuel. Plus haut = plus créatif/aléatoire.</p></div><div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (pensées aléatoires)</Label></div></div><DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Réinitialiser</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setIsDevSettingsOpen(false);}}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}><DialogContent className="sm:max-w-[600px] bg-card"><DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés pour le comportement de Sakai. Ces paramètres sont pour les développeurs et peuvent affecter la performance ou la pertinence des réponses.</DialogDescription></DialogHeader><div className="grid gap-6 py-4"><div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laissez vide pour utiliser l'invite système par défaut de Sakai. Si rempli, cela surchargera complètement le prompt par défaut." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée si ce champ est rempli.</p></div><div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature?.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature ?? 0.7]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Contrôle l'aléa des réponses. Plus bas = plus déterministe/factuel. Plus haut = plus créatif/aléatoire.</p></div><div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (pensées aléatoires)</Label></div></div><DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Réinitialiser</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setIsDevSettingsOpen(false);}}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
-
