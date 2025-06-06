@@ -1,30 +1,21 @@
 // src/components/chat/chat-assistant.tsx
 "use client";
 
-import React, { useState, useRef, useEffect, FormEvent, ChangeEvent, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Send, Loader2, User, Mic, Paperclip, XCircle, FileText, Copy, Check,
-  Brain, MoreVertical, Info, SlidersHorizontal, AlertTriangle, CheckCircle, Mail, Plane, Lightbulb, Languages, Sparkles, Trash2, Download, Eye, Palette, Ratio, Image as ImageIconLucide, MessageSquare, Laugh, Settings, Zap, Contact, Globe, Bot as DeepSakaiIcon
+  Loader2, User, FileText, Copy, Check, Download, 
 } from 'lucide-react';
 import {
-  Dialog, DialogContent, DialogHeader, DialogFooter, DialogClose, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 
-
-import { streamChatAssistant, type ChatMessage, type ChatStreamChunk, type ChatMessagePart, type AIPersonality } from '@/ai/flows/chat-assistant-flow';
-import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
+import type { ChatMessage, ChatMessagePart } from '@/ai/flows/chat-assistant-flow';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { SakaiLogo } from '@/components/icons/logo';
-import { ThemeToggleButton } from './theme-toggle-button'; // Assurez-vous que ce chemin est correct
 
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -62,80 +53,32 @@ SyntaxHighlighter.registerLanguage('sh', shell);
 SyntaxHighlighter.registerLanguage('bash', shell);
 
 
-interface UploadedFileWrapper {
-  dataUri: string;
-  file: File;
-  id: string;
-}
-
 interface ChatAssistantProps {
-  initialMessages?: ChatMessage[];
-  onMessagesUpdate: (messages: ChatMessage[]) => void;
-  userMemory: string;
-  devOverrideSystemPrompt?: string;
-  devModelTemperature?: number;
-  activeChatId: string | null;
+  messages: ChatMessage[];
+  isSendingMessage: boolean;
+  currentStreamingMessageId: string | null;
   currentUserName?: string | null;
   userAvatarUrl: string | null;
-  selectedPersonality: AIPersonality;
   isWebSearchEnabled: boolean;
-  onWebSearchChange: (enabled: boolean) => void;
+  onWebSearchChange: (checked: boolean) => void;
   isDeepSakaiEnabled: boolean;
-  onDeepSakaiChange: (enabled: boolean) => void;
+  onDeepSakaiChange: (checked: boolean) => void;
 }
 
-const TOP_BAR_HEIGHT_NUM = 64; 
-const INPUT_BAR_MIN_HEIGHT_NUM = 96; 
-
 export function ChatAssistant({
-  initialMessages = [],
-  onMessagesUpdate,
-  userMemory,
-  devOverrideSystemPrompt,
-  devModelTemperature,
-  activeChatId,
+  messages,
+  isSendingMessage,
+  currentStreamingMessageId,
   currentUserName,
   userAvatarUrl,
-  selectedPersonality,
-  isWebSearchEnabled,
-  onWebSearchChange,
-  isDeepSakaiEnabled,
-  onDeepSakaiChange,
 }: ChatAssistantProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileWrapper[]>([]);
-  const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
-
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
-  const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   
-  const featureActions = [
-    { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
-    { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
-    { id: 'draft-pitch', label: "Rédiger un pitch", icon: Lightbulb, promptPrefix: "Aide-moi à rédiger un pitch pour " },
-    { id: 'translate-text', label: "Traduire un texte", icon: Languages, promptPrefix: "Traduis ce texte en français : " },
-  ];
-
-  useEffect(() => {
-    if (activeChatId) {
-        setMessages(initialMessages);
-        setInput('');
-        setUploadedFiles([]);
-        if (inputRef.current && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
-           inputRef.current.focus();
-        }
-    }
-  }, [activeChatId, initialMessages, isImagePreviewOpen, isFeaturesPopoverOpen]); 
-
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
       const scrollViewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
@@ -145,294 +88,7 @@ export function ChatAssistant({
     }
   }, []);
 
-  useEffect(scrollToBottom, [messages, isLoading, scrollToBottom]);
-
-  useEffect(() => {
-    if (inputRef.current && !isLoading && !isImagePreviewOpen && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
-      inputRef.current.focus();
-    }
-  }, [isLoading, isImagePreviewOpen, isFeaturesPopoverOpen, activeChatId]);
-
-  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf', 'text/plain', 'text/markdown'];
-      
-      Array.from(files).forEach(file => {
-        const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
-        let effectiveMimeType = file.type;
-
-        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream" || effectiveMimeType === "") {
-          const lowerName = file.name.toLowerCase();
-          if (lowerName.endsWith('.md')) effectiveMimeType = 'text/markdown';
-          else if (lowerName.endsWith('.txt')) effectiveMimeType = 'text/plain';
-          else if (lowerName.endsWith('.pdf')) effectiveMimeType = 'application/pdf';
-          else if (lowerName.endsWith('.png')) effectiveMimeType = 'image/png';
-          else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg';
-          else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp';
-          else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif';
-          else {
-            console.warn(`SACAI_CLIENT: Could not infer MIME type for ${file.name}, defaulting to application/octet-stream`);
-            effectiveMimeType = 'application/octet-stream'; 
-          }
-        }
-        
-        const isAllowed = allowedMimeTypes.some(allowedType => {
-            if (allowedType.endsWith('/*')) { 
-                return effectiveMimeType.startsWith(allowedType.slice(0, -2));
-            }
-            return effectiveMimeType === allowedType;
-        });
-
-        if (isAllowed) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (reader.result) {
-              const correctlyTypedFile = new File([file], file.name, { type: effectiveMimeType });
-              setUploadedFiles(prev => [...prev, { dataUri: reader.result as string, file: correctlyTypedFile, id: uniqueId }]);
-            } else {
-              console.error("SACAI_CLIENT: FileReader result is null for file:", file.name);
-              toast({ title: "Erreur de lecture du fichier", description: `Impossible de lire le contenu du fichier "${file.name}".`, variant: "destructive" });
-            }
-          };
-          reader.onerror = (error) => {
-            console.error("SACAI_CLIENT: FileReader error for file:", file.name, error);
-            toast({ title: "Erreur de lecture du fichier", description: `Une erreur est survenue lors de la lecture du fichier "${file.name}".`, variant: "destructive" });
-          };
-          reader.readAsDataURL(file);
-        } else {
-          toast({ title: "Type de fichier non supporté", description: `Le fichier "${file.name}" (type: ${effectiveMimeType || 'inconnu'}) n'est pas supporté. Images, PDF, TXT, et MD sont acceptés.`, variant: "destructive"});
-        }
-      });
-    }
-    if (event.target) event.target.value = ''; 
-  };
-
-  const removeUploadedFile = (fileIdToRemove: string) => {
-    setUploadedFiles(prev => prev.filter(fileWrapper => fileWrapper.id !== fileIdToRemove));
-  };
-
-  const clearAllUploadedFiles = () => {
-    setUploadedFiles([]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleImageGeneration = async (promptText: string) => {
-    setIsLoading(true);
-    setCurrentStreamingMessageId(null);
-    const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
-    const imageGenPlaceholderId = `img-gen-${Date.now()}`;
-
-    const coreImagePrompt = promptText; 
-
-    const userPromptMessage: ChatMessage = {
-      role: 'user',
-      parts: [{ type: 'text', text: `Génère une image : ${coreImagePrompt}` }],
-      id: imageGenUserMessageId,
-      createdAt: Date.now(),
-    };
-
-    const assistantPlaceholderMessage: ChatMessage = {
-      role: 'model',
-      parts: [{ type: 'text', text: `Sakai génère une image pour : "${coreImagePrompt.substring(0, 50)}..."` }],
-      id: imageGenPlaceholderId,
-      createdAt: Date.now() + 1,
-    };
-    
-    let finalUserAndAssistantMessages = [...messages, userPromptMessage, assistantPlaceholderMessage];
-    setMessages(finalUserAndAssistantMessages);
-    
-    let finalAssistantMessage: ChatMessage | null = null;
-    
-    try {
-      const result: GenerateImageOutput = await generateImage({ prompt: coreImagePrompt });
-      if (result.imageUrl) {
-        finalAssistantMessage = {
-            role: 'model' as 'model',
-            parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }],
-            id: imageGenPlaceholderId, 
-            createdAt: Date.now(),
-        };
-      } else {
-        const errorMessage = result.error || "La génération d'image a échoué.";
-        toast({ title: "Erreur de génération d'image", description: errorMessage, variant: "destructive" });
-        finalAssistantMessage = {
-            role: 'model' as 'model',
-            parts: [{ type: 'text' as 'text', text: `Désolé, je n'ai pas pu générer l'image. ${errorMessage}` }],
-            id: imageGenPlaceholderId, 
-            createdAt: Date.now(),
-        };
-      }
-    } catch (error: unknown) {
-      const errorMessage = (error as Error)?.message || "Erreur inattendue lors de la génération de l'image.";
-      toast({ title: "Erreur de génération d'image", description: errorMessage, variant: "destructive" });
-       finalAssistantMessage = {
-            role: 'model' as 'model',
-            parts: [{ type: 'text' as 'text', text: `Erreur : ${errorMessage}` }],
-            id: imageGenPlaceholderId, 
-            createdAt: Date.now(),
-        };
-    } finally {
-      if (finalAssistantMessage) {
-        const updatedMessagesForPersistence = finalUserAndAssistantMessages.map(msg => 
-            msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg
-        );
-        setMessages(updatedMessagesForPersistence);
-        onMessagesUpdate(updatedMessagesForPersistence);
-      }
-      setIsLoading(false);
-    }
-  };
-
-  const handleSendMessage = async (e?: FormEvent<HTMLFormElement> | string) => {
-    if (typeof e === 'object' && e?.preventDefault) e.preventDefault();
-
-    const currentInputVal = (typeof e === 'string' ? e : input).trim();
-    const currentUploadedFiles = [...uploadedFiles]; 
-
-    if ((!currentInputVal && currentUploadedFiles.length === 0) || isLoading) return;
-
-    const imageKeywords = [
-      "génère une image de", "dessine-moi", "crée une image de", "photo de", "image de",
-      "génère une photo de", "fais une photo de", "je veux une photo de",
-      "génère un dessin de", "fais un dessin de", "je veux un dessin de",
-      "génère-moi une image de", "crée-moi une image de"
-    ];
-    const lowerInput = currentInputVal.toLowerCase();
-    let isImageRequestIntent = false;
-    if (currentUploadedFiles.length === 0) {
-        isImageRequestIntent = imageKeywords.some(keyword => lowerInput.startsWith(keyword));
-    }
-
-    if (isImageRequestIntent) {
-      const capturedInputForImage = currentInputVal;
-      setInput(''); 
-      clearAllUploadedFiles();
-      await handleImageGeneration(capturedInputForImage.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de|génère une photo de|fais une photo de|je veux une photo de|génère un dessin de|fais un dessin de|je veux un dessin de|génère-moi une image de|crée-moi une image de)\s*/i, '').trim());
-      return;
-    }
-
-    const userMessageId = `user-${Date.now()}`;
-    const newUserMessageParts: ChatMessagePart[] = [];
-    
-    currentUploadedFiles.forEach(fileWrapper => {
-      newUserMessageParts.push({
-        type: 'image', 
-        imageDataUri: fileWrapper.dataUri,
-        mimeType: fileWrapper.file.type || 'application/octet-stream'
-      });
-    });
-
-    if (currentInputVal) {
-      newUserMessageParts.push({ type: 'text', text: currentInputVal });
-    }
-
-    if (newUserMessageParts.length === 0) return;
-    
-    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
-    
-    const assistantMessageId = `model-${Date.now()}`;
-    setCurrentStreamingMessageId(assistantMessageId);
-    setIsLoading(true);
-
-    const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
-    
-    const messagesForImmediateDisplay = [...messages, newUserMessage, assistantPlaceholderMessage];
-    setMessages(messagesForImmediateDisplay);
-    
-    const historyForApi = [...initialMessages, newUserMessage]; 
-    
-    setInput(''); 
-    clearAllUploadedFiles();
-
-    let accumulatedText = "";
-    let finalAssistantMessage: ChatMessage | null = null;
-
-    try {
-      console.log("SACAI_CLIENT: Calling streamChatAssistant with history length:", historyForApi.length, "Personality:", selectedPersonality, "WebSearch:", isWebSearchEnabled, "DeepSakai:", isDeepSakaiEnabled);
-      const readableStream = await streamChatAssistant({
-        history: historyForApi,
-        memory: userMemory,
-        overrideSystemPrompt: devOverrideSystemPrompt,
-        temperature: devModelTemperature,
-        personality: selectedPersonality,
-        enableWebSearch: isWebSearchEnabled,
-        enableDeepSakai: isDeepSakaiEnabled,
-      });
-      const reader = readableStream.getReader();
-      
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chatChunk: ChatStreamChunk = value;
-
-        if (chatChunk.error) {
-          console.error("SACAI_CLIENT: Stream error from server:", chatChunk.error);
-          accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`;
-          toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" });
-          break; 
-        }
-
-        if (chatChunk.text) {
-          accumulatedText += chatChunk.text;
-          setMessages(prev => {
-            return prev.map(msg =>
-              msg.id === assistantMessageId
-                ? { ...msg, parts: [{type: 'text', text: accumulatedText }] }
-                : msg
-            );
-          });
-        }
-      }
-
-      finalAssistantMessage = {
-        role: 'model',
-        parts: [{type: 'text' as 'text', text: accumulatedText }],
-        id: assistantMessageId,
-        createdAt: Date.now() 
-      };
-
-    } catch (error: any) {
-      console.error("SACAI_CLIENT: Erreur majeure lors du streaming (côté client):", error);
-      const errorMessageText = error?.message || "Désolé, une erreur de communication est survenue.";
-      toast({ title: "Erreur de Communication", description: errorMessageText, variant: "destructive" });
-      finalAssistantMessage = {
-        role: 'model',
-        parts: [{ type: 'text', text: errorMessageText }],
-        id: assistantMessageId,
-        createdAt: Date.now()
-      };
-    } finally {
-      let messagesForPersistence;
-      if (finalAssistantMessage) {
-        messagesForPersistence = messagesForImmediateDisplay.map(msg => 
-            msg.id === assistantMessageId ? finalAssistantMessage! : msg
-        );
-      } else {
-        const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue durant la réponse.";
-        const errorMsgForPersistence: ChatMessage = {
-          role: 'model',
-          parts: [{ type: 'text', text: fallbackErrorMsg }],
-          id: assistantMessageId, 
-          createdAt: Date.now()
-        };
-         messagesForPersistence = messagesForImmediateDisplay.map(msg => 
-            msg.id === assistantMessageId ? errorMsgForPersistence : msg
-        );
-      }
-      onMessagesUpdate(messagesForPersistence); // Single call to persist final state
-      setIsLoading(false);
-      setCurrentStreamingMessageId(null);
-    }
-  };
-
-  const handleFeatureActionClick = (promptPrefix: string) => {
-    setInput(prevInput => promptPrefix + prevInput);
-    setIsFeaturesPopoverOpen(false);
-    if(inputRef.current) inputRef.current.focus();
-  };
+  useEffect(scrollToBottom, [messages, isSendingMessage, scrollToBottom]);
 
   const handleCopyCode = (codeToCopy: string, partId: string) => {
     navigator.clipboard.writeText(codeToCopy).then(() => {
@@ -514,8 +170,11 @@ export function ChatAssistant({
       const flushList = () => {
         if (listItems.length > 0) {
           const listKey = `${uniqueKeyPrefix}-list-${blockKeyIndex}-${keyIndex++}`;
-          if (currentListType === 'ul') elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
-          else if (currentListType === 'ol') elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
+          if (currentListType === 'ul') {
+            elements.push(<ul key={listKey} className="list-disc list-inside my-2 pl-5 space-y-1">{listItems}</ul>);
+          } else if (currentListType === 'ol') {
+            elements.push(<ol key={listKey} className="list-decimal list-inside my-2 pl-5 space-y-1">{listItems}</ol>);
+          }
           listItems = [];
         }
         currentListType = null;
@@ -578,7 +237,7 @@ export function ChatAssistant({
             </SyntaxHighlighter>
           </div>
         );
-      } else { // File block
+      } else { 
         const fileName = match[4].trim();
         const fileContent = match[5].trim();
         const fileKey = `${uniqueKeyPrefix}-file-${blockKeyIndex}`;
@@ -598,7 +257,6 @@ export function ChatAssistant({
     return elements;
   };
 
-
   const renderMessagePart = (part: ChatMessagePart, partIndex: number, message: ChatMessage, isLastMessageOfList: boolean) => {
     const uniquePartKey = `${message.id || 'msg'}-${part.type}-${partIndex}-${Math.random().toString(36).substring(2,7)}`;
     if (part.type === 'text') {
@@ -606,7 +264,7 @@ export function ChatAssistant({
       return (
         <div key={uniquePartKey} className="text-sm 2xl:text-base whitespace-pre-wrap leading-relaxed">
             {styledTextElements}
-            {isLastMessageOfList && message.role === 'model' && isLoading && message.id === currentStreamingMessageId && (
+            {isLastMessageOfList && message.role === 'model' && isSendingMessage && message.id === currentStreamingMessageId && (
                 <span className="blinking-cursor-span">▋</span>
             )}
         </div>
@@ -623,7 +281,7 @@ export function ChatAssistant({
           </div>
         );
       } else { 
-        const fileNameFromPart = (uploadedFiles.find(f => f.dataUri === part.imageDataUri)?.file.name) || (part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."); 
+        const fileNameFromPart = part.imageDataUri.startsWith('data:') ? (part.mimeType || 'fichier') : part.imageDataUri.substring(0,30) + "..."; 
         return (
           <div key={uniquePartKey} className="my-2 p-3 border border-dashed rounded-md bg-muted/30 flex items-center gap-2 text-sm text-muted-foreground max-w-[250px] md:max-w-[300px]">
             <FileText className="h-6 w-6 text-primary shrink-0" />
@@ -637,14 +295,13 @@ export function ChatAssistant({
 
   return (
     <>
-      {/* Message Display Area - Fixed Top & Bottom Padding by parent in page.tsx */}
       <ScrollArea 
         ref={scrollAreaRef} 
         className="flex-1 w-full"
         style={{ scrollBehavior: 'smooth' }}
       >
         <div className="p-4 sm:p-6 space-y-4 max-w-4xl mx-auto"> 
-          {messages.length === 0 && !isLoading && (
+          {messages.length === 0 && !isSendingMessage && (
              <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-6 mt-16">
               <SakaiLogo className="h-20 w-20 sm:h-24 sm:w-24 text-primary opacity-80 mb-4" data-ai-hint="logo large"/>
               <p className="text-xl 2xl:text-2xl font-medium text-foreground">
@@ -658,8 +315,8 @@ export function ChatAssistant({
           {messages.map((msg, msgIndex) => {
             const isUser = msg.role === 'user';
             const isLastMessageOfList = msgIndex === messages.length - 1;
-            const isLoadingPlaceholder = isLoading && msg.role === 'model' && msg.id === currentStreamingMessageId && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
-            const isImageGenPlaceholder = isLoading && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
+            const isLoadingPlaceholder = isSendingMessage && msg.role === 'model' && msg.id === currentStreamingMessageId && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text === '';
+            const isImageGenPlaceholder = isSendingMessage && msg.role === 'model' && msg.parts.length === 1 && msg.parts[0].type === 'text' && msg.parts[0].text.startsWith('Sakai génère une image');
 
             return (
               <div key={msg.id || `msg-${msgIndex}-${Date.now()}-${Math.random()}`} className={cn("flex items-end gap-3 break-words w-full", isUser ? 'justify-end' : 'justify-start')}>
@@ -693,100 +350,6 @@ export function ChatAssistant({
           })}
         </div>
       </ScrollArea>
-
-      {/* Input Form Area - To be placed in the fixed bottom bar by page.tsx */}
-      <div className="w-full p-3 sm:p-4"> 
-          {uploadedFiles.length > 0 && (
-            <div className="mb-2.5 space-y-1.5">
-              <div className="flex justify-between items-center">
-                <p className="text-xs text-muted-foreground font-medium">Fichiers ({uploadedFiles.length}) :</p>
-                <Button variant="ghost" size="sm" onClick={clearAllUploadedFiles} className="text-xs text-destructive hover:text-destructive/80 h-auto py-1"><Trash2 className="h-3 w-3 mr-1" /> Tout effacer</Button>
-              </div>
-              <ScrollArea className="max-h-24"><div className="space-y-1 pr-2">
-                {uploadedFiles.map((fileWrapper) => (
-                  <div key={fileWrapper.id} className="relative w-full p-1.5 border border-dashed rounded-md flex items-center justify-between bg-background/50 dark:bg-muted/30 text-xs">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      {fileWrapper.file.type.startsWith('image/') ? (<NextImage src={fileWrapper.dataUri} alt={`Aperçu ${fileWrapper.file.name}`} width={24} height={24} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>) : (<FileText className="h-5 w-5 shrink-0 text-primary" />)}
-                      <span className="text-muted-foreground truncate" title={fileWrapper.file.name}>{fileWrapper.file.name} ({(fileWrapper.file.size / 1024).toFixed(1)} KB)</span>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeUploadedFile(fileWrapper.id)} className="text-destructive hover:text-destructive/80 h-6 w-6 shrink-0"><XCircle className="h-3.5 w-3.5" /></Button>
-                  </div>
-                ))}
-              </div></ScrollArea>
-            </div>
-          )}
-          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2 sm:gap-2.5">
-            <Popover open={isFeaturesPopoverOpen} onOpenChange={setIsFeaturesPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="icon" type="button" aria-label="Fonctionnalités de Sakai" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Sparkles className="h-5 w-5" /></Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2 bg-popover border shadow-xl rounded-lg mb-2" side="top" align="start">
-                <div className="flex gap-1">
-                  {featureActions.map((action) => (
-                    <TooltipProvider key={action.id} delayDuration={100}><Tooltip>
-                      <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => handleFeatureActionClick(action.promptPrefix)} className="text-muted-foreground hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/20 h-9 w-9" aria-label={action.label}><action.icon className="h-5 w-5" /></Button></TooltipTrigger>
-                      <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md"><p>{action.label}</p></TooltipContent>
-                    </Tooltip></TooltipProvider>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Paperclip className="h-5 w-5" /></Button>
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,application/pdf,text/plain,.md,text/markdown"/>
-            
-            {/* Mode Web & Deep Sakai Toggles */}
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
-                    <Switch
-                      id="web-search-toggle"
-                      checked={isWebSearchEnabled}
-                      onCheckedChange={onWebSearchChange}
-                      className="data-[state=checked]:bg-blue-500 dark:data-[state=checked]:bg-blue-500"
-                      aria-label="Activer/Désactiver la recherche web"
-                    />
-                    <Label htmlFor="web-search-toggle" className="cursor-pointer">
-                      <Globe className={cn("h-5 w-5", isWebSearchEnabled ? "text-blue-500" : "text-muted-foreground")} />
-                    </Label>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md">
-                  <p>Mode Web (Simulé)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
-                     <Switch
-                      id="deep-sakai-toggle"
-                      checked={isDeepSakaiEnabled}
-                      onCheckedChange={onDeepSakaiChange}
-                      className="data-[state=checked]:bg-purple-500 dark:data-[state=checked]:bg-purple-500"
-                      aria-label="Activer/Désactiver le mode DeepSakai"
-                    />
-                    <Label htmlFor="deep-sakai-toggle" className="cursor-pointer">
-                      <DeepSakaiIcon className={cn("h-5 w-5", isDeepSakaiEnabled ? "text-purple-500" : "text-muted-foreground")} />
-                    </Label>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md">
-                  <p>Mode DeepSakai</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-
-            <Input ref={inputRef} type="text" placeholder="Envoyer un message à Sakai..." value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} className="flex-1 py-2.5 px-3.5 text-sm rounded-lg bg-input focus-visible:ring-primary/50 h-10"/>
-            
-            <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
-              {isLoading && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            </Button>
-          </form>
-        </div>
 
       {isImagePreviewOpen && imagePreviewUrl && (
         <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>

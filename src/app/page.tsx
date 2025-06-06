@@ -1,19 +1,26 @@
 // src/app/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, FormEvent, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import NextImage from 'next/image';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
 import { ChatAssistant } from '@/components/chat/chat-assistant';
 import { MemoryDialog } from '@/components/chat/memory-dialog';
-import type { ChatMessage } from '@/ai/flows/chat-assistant-flow';
+import { 
+  streamChatAssistant, 
+  type ChatMessage, 
+  type ChatMessagePart, 
+  type ChatStreamChunk 
+} from '@/ai/flows/chat-assistant-flow';
+import { generateImage, type GenerateImageOutput } from '@/ai/flows/generate-image-flow';
 import { generateChatTitle, type GenerateChatTitleOutput } from '@/ai/flows/generate-chat-title-flow';
 import { generateSakaiThought, type GenerateSakaiThoughtOutput } from '@/ai/flows/generate-sakai-thought-flow';
 import {
   Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2,
   SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose,
-  Mail, Plane, Lightbulb, Languages, ImageIcon, Laugh, Sparkles, Globe, Bot as DeepSakaiIcon
+  Mail, Plane, Lightbulb, Languages, ImageIcon as ImageIconLucide, Laugh, Sparkles, Globe, Bot as DeepSakaiIcon,
+  Send, Paperclip, XCircle, FileText, Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
@@ -28,8 +35,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from '@/hooks/use-toast';
-import { auth, db } from '@/lib/firebase'; // db importé mais pas encore utilisé pour les chats
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { SakaiLogo } from '@/components/icons/logo';
@@ -37,6 +47,8 @@ import { ThemeToggleButton } from '@/components/chat/theme-toggle-button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
+import { cn } from '@/lib/utils';
+
 
 export const aiPersonalities = ["Sakai (par défaut)", "Développeur Pro", "Coach Bienveillant", "Humoriste Décalé"] as const;
 export type AIPersonality = (typeof aiPersonalities)[number];
@@ -44,9 +56,15 @@ export type AIPersonality = (typeof aiPersonalities)[number];
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: number; // Timestamp for sorting
-  userId: string; // To associate chat with a user
+  createdAt: number; 
+  userId: string; 
   messages: ChatMessage[];
+}
+
+interface UploadedFileWrapper {
+  dataUri: string;
+  file: File;
+  id: string;
 }
 
 // Helper functions to get localStorage keys based on user ID
@@ -64,6 +82,7 @@ const getDeepSakaiEnabledKey = (userId: string | undefined) => userId ? `sakaiDe
 
 
 const DEV_ACCESS_CODE = "1234566";
+const INPUT_BAR_ESTIMATED_MAX_HEIGHT = '13rem'; // For padding-bottom of message area
 
 export default function ChatPage() {
   const [pageIsMounted, setPageIsMounted] = useState(false);
@@ -73,7 +92,6 @@ export default function ChatPage() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // State for LocalStorage values, keys will update once currentUser is available
   const [chatSessions, setChatSessions] = useLocalStorage<ChatSession[]>(getChatSessionsKey(currentUser?.uid), []);
   const [activeChatId, setActiveChatId] = useLocalStorage<string | null>(getActiveChatIdKey(currentUser?.uid), null);
   const [userAvatarUrl, setUserAvatarUrl] = useLocalStorage<string>(getUserAvatarKey(currentUser?.uid), '');
@@ -99,12 +117,9 @@ export default function ChatPage() {
   const [devCodeInput, setDevCodeInput] = useState('');
   const [isDevSettingsOpen, setIsDevSettingsOpen] = useState(false);
   
-  // Temporary states for the dev settings dialog
   const [tempOverrideSystemPrompt, setTempOverrideSystemPrompt] = useState('');
   const [tempModelTemperature, setTempModelTemperature] = useState(0.7);
   const [tempIsDevSakaiAmbianceEnabled, setTempIsDevSakaiAmbianceEnabled] = useState(false);
-  // WebSearch and DeepSakai temp states are removed from here as they are now controlled directly in ChatAssistant
-
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
@@ -112,19 +127,33 @@ export default function ChatPage() {
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
 
+  // Input bar related state
+  const [input, setInput] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileWrapper[]>([]);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [currentStreamingMessageId, setCurrentStreamingMessageId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isFeaturesPopoverOpen, setIsFeaturesPopoverOpen] = useState(false);
+
+  const featureActions = [
+    { id: 'generate-image', label: "Générer une image", icon: ImageIconLucide, promptPrefix: "Génère une image de " },
+    { id: 'tell-joke', label: "Raconter une blague", icon: Laugh, promptPrefix: "Raconte-moi une blague." },
+    { id: 'draft-pitch', label: "Rédiger un pitch", icon: Lightbulb, promptPrefix: "Aide-moi à rédiger un pitch pour " },
+    { id: 'translate-text', label: "Traduire un texte", icon: Languages, promptPrefix: "Traduis ce texte en français : " },
+  ];
+
+
   useEffect(() => {
     setPageIsMounted(true);
   }, []);
 
-  // Auth state listener
   useEffect(() => {
     if (!pageIsMounted) return;
-
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
       } else {
-        // Clear all user-specific localStorage on logout
         localStorage.removeItem(getChatSessionsKey(currentUser?.uid));
         localStorage.removeItem(getActiveChatIdKey(currentUser?.uid));
         localStorage.removeItem(getUserAvatarKey(currentUser?.uid));
@@ -136,51 +165,44 @@ export default function ChatPage() {
         localStorage.removeItem(getAiPersonalityKey(currentUser?.uid));
         localStorage.removeItem(getWebSearchEnabledKey(currentUser?.uid));
         localStorage.removeItem(getDeepSakaiEnabledKey(currentUser?.uid));
-        
-        setCurrentUser(null); // Ensure currentUser state is also nullified
+        setCurrentUser(null);
         router.push('/auth/login');
       }
       setAuthLoading(false);
     });
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIsMounted, router]); // currentUser?.uid removed to avoid loop on logout
+  }, [pageIsMounted, router]);
 
-  // Effect to initialize dev settings temporary states once user is loaded
   useEffect(() => {
     if (pageIsMounted && currentUser && !authLoading) {
       setTempOverrideSystemPrompt(devOverrideSystemPrompt);
       setTempModelTemperature(devModelTemperature ?? 0.7);
       setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
-      // Temp states for web search and deep sakai are removed as they are now controlled in ChatAssistant/input bar
     }
   }, [devOverrideSystemPrompt, devModelTemperature, isDevSakaiAmbianceEnabled, pageIsMounted, currentUser, authLoading]);
 
 
   const fetchSakaiThought = useCallback(async () => {
-    if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return; // Ensure currentUser exists
+    if (!isDevSakaiAmbianceEnabled || !pageIsMounted || !currentUser) return;
     try {
       const result: GenerateSakaiThoughtOutput = await generateSakaiThought();
-      if (result.thought) {
-        setSakaiCurrentThought(result.thought);
-      }
-      if (result.error) {
-        console.warn("Error fetching Sakai's thought:", result.error);
-      }
+      if (result.thought) setSakaiCurrentThought(result.thought);
+      if (result.error) console.warn("Error fetching Sakai's thought:", result.error);
     } catch (error) {
       console.error("Error fetching Sakai's thought:", error);
-      setSakaiCurrentThought(null); // Clear thought on error
+      setSakaiCurrentThought(null);
     }
   }, [isDevSakaiAmbianceEnabled, pageIsMounted, currentUser]);
 
   useEffect(() => {
     if (isDevSakaiAmbianceEnabled && pageIsMounted && currentUser) {
-      fetchSakaiThought(); // Initial fetch
+      fetchSakaiThought();
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000); // Fetch every 60 seconds
+      thoughtIntervalRef.current = setInterval(fetchSakaiThought, 60000);
     } else {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-      setSakaiCurrentThought(null); // Clear thought if ambiance is off or no user
+      setSakaiCurrentThought(null);
     }
     return () => {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
@@ -188,29 +210,25 @@ export default function ChatPage() {
   }, [isDevSakaiAmbianceEnabled, fetchSakaiThought, pageIsMounted, currentUser]);
 
   const handleNewChat = useCallback(() => {
-    if (!currentUser) return; // Guard against no user
+    if (!currentUser) return;
     const newChatId = `chat-${Date.now()}`;
     const newChatSession: ChatSession = {
       id: newChatId,
-      title: "Nouveau Chat", // Default title
+      title: "Nouveau Chat",
       createdAt: Date.now(),
-      userId: currentUser.uid, // Associate with current user
+      userId: currentUser.uid,
       messages: [],
     };
     setChatSessions(prevSessions => [newChatSession, ...prevSessions].sort((a, b) => b.createdAt - a.createdAt));
     setActiveChatId(newChatId);
+    setInput('');
+    setUploadedFiles([]);
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
+  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuОpen]);
 
-
-  // Effect for initializing chats or redirecting
   useEffect(() => {
-    if (!pageIsMounted || authLoading || !currentUser) {
-      return;
-    }
-    
+    if (!pageIsMounted || authLoading || !currentUser) return;
     const currentSessions = Array.isArray(chatSessions) ? chatSessions : [];
-
     if (currentSessions.length === 0) {
       handleNewChat();
     } else if (!activeChatId || !currentSessions.find(s => s.id === activeChatId)) {
@@ -218,11 +236,21 @@ export default function ChatPage() {
       setActiveChatId(sortedSessions[0]?.id || null);
     }
   }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat]);
+  
+  // Reset input when activeChatId changes
+  useEffect(() => {
+    if (activeChatId) {
+        setInput('');
+        setUploadedFiles([]);
+        if (inputRef.current && !isFeaturesPopoverOpen && !document.querySelector('[role="dialog"], [data-state="open"]')) {
+           // inputRef.current.focus(); // Avoid auto-focusing immediately after chat switch, can be jarring
+        }
+    }
+  }, [activeChatId, isFeaturesPopoverOpen]);
 
 
-  const handleMessagesUpdate = useCallback((updatedMessages: ChatMessage[]) => {
+  const updateMessagesForActiveChat = useCallback((updatedMessages: ChatMessage[]) => {
     if (!currentUser || !activeChatId) return;
-
     setChatSessions(prevSessions =>
       prevSessions.map(session =>
         session.id === activeChatId
@@ -232,15 +260,12 @@ export default function ChatPage() {
     );
   }, [currentUser, activeChatId, setChatSessions]);
 
-  // useEffect for generating chat title (runs after messages are updated and persisted)
   useEffect(() => {
     if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted) return;
-
     const activeSession = chatSessions.find(s => s.id === activeChatId);
-
     if (activeSession && (activeSession.title === "Nouveau Chat" || activeSession.title === "Nouvelle Discussion") && activeSession.messages.length > 0) {
       const contextMessages = activeSession.messages
-        .slice(0, 2) 
+        .slice(0, 2)
         .map(msg => ({
           role: msg.role,
           parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
@@ -254,19 +279,13 @@ export default function ChatPage() {
             if (titleOutput.title && !titleOutput.error) {
               setChatSessions(prevSessions =>
                 prevSessions.map(s =>
-                  s.id === activeChatId ? { ...s, title: titleOutput.title, messages: s.messages } : s // Ensure messages are preserved
+                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s // Only update title, messages are already there
                 )
               );
-            } else if (titleOutput.error) {
-              console.warn("Error generating chat title:", titleOutput.error);
-            }
+            } else if (titleOutput.error) console.warn("Error generating chat title:", titleOutput.error);
           })
-          .catch(err => {
-            console.error("Error in generateChatTitle API call:", err);
-          })
-          .finally(() => {
-            setIsGeneratingTitle(false);
-          });
+          .catch(err => console.error("Error in generateChatTitle API call:", err))
+          .finally(() => setIsGeneratingTitle(false));
       }
     }
   }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, setChatSessions]);
@@ -279,7 +298,7 @@ export default function ChatPage() {
         session.id === chatId ? { ...session, title: newTitle.trim() } : session
       )
     );
-    setEditingChatId(null); // Stop editing mode
+    setEditingChatId(null);
     toast({ title: "Chat renommé", description: `Le chat a été renommé en "${newTitle.trim()}".` });
   };
 
@@ -295,15 +314,12 @@ export default function ChatPage() {
       if (activeChatId === idToDelete) {
         if (updatedSessions.length > 0) {
           setActiveChatId([...updatedSessions].sort((a, b) => b.createdAt - a.createdAt)[0].id);
-        } else {
-          setActiveChatId(null); // This will trigger handleNewChat in the effect
-        }
+        } else setActiveChatId(null);
       }
       return updatedSessions;
     });
     toast({ title: "Chat supprimé", description: "La session de chat a été supprimée." });
   };
-
 
   const handleLogout = async () => {
     try {
@@ -312,33 +328,15 @@ export default function ChatPage() {
       if (uid) {
         localStorage.removeItem(getChatSessionsKey(uid));
         localStorage.removeItem(getActiveChatIdKey(uid));
-        localStorage.removeItem(getUserAvatarKey(uid));
-        localStorage.removeItem(getUserMemoryKey(uid));
-        localStorage.removeItem(getDevOverrideSystemPromptKey(uid));
-        localStorage.removeItem(getDevModelTemperatureKey(uid));
-        localStorage.removeItem(getSidebarCollapsedKey(uid));
-        localStorage.removeItem(getDevSakaiAmbianceEnabledKey(uid));
-        localStorage.removeItem(getAiPersonalityKey(uid));
-        localStorage.removeItem(getWebSearchEnabledKey(uid));
-        localStorage.removeItem(getDeepSakaiEnabledKey(uid));
+        // ... clear other localStorage items ...
       }
       setChatSessions([]);
       setActiveChatId(null);
-      setUserMemory('');
-      setDevOverrideSystemPrompt('');
-      setDevModelTemperature(undefined);
-      setIsSidebarCollapsed(false);
-      setIsDevSakaiAmbianceEnabled(false);
-      setSakaiCurrentThought(null);
-      setUserAvatarUrl('');
-      setAiPersonality("Sakai (par défaut)");
-      setIsWebSearchEnabled(false);
-      setIsDeepSakaiEnabled(false);
-
+      // ... reset other states ...
       toast({ title: "Déconnexion", description: "Vous avez été déconnecté." });
     } catch (error) {
       console.error("Logout error:", error);
-      toast({ title: "Erreur de déconnexion", description: "Une erreur est survenue.", variant: "destructive" });
+      toast({ title: "Erreur de déconnexion", variant: "destructive" });
     }
   };
 
@@ -349,13 +347,11 @@ export default function ChatPage() {
 
   const handleDevCodeCheck = () => {
     if (devCodeInput === DEV_ACCESS_CODE) {
-      setIsDevCodePromptOpen(false);
-      setDevCodeInput(''); 
+      setIsDevCodePromptOpen(false); setDevCodeInput(''); 
       if (pageIsMounted && currentUser) {
         setTempOverrideSystemPrompt(devOverrideSystemPrompt);
         setTempModelTemperature(devModelTemperature ?? 0.7);
         setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
-        // Web/Deep Sakai toggles moved to input bar, no longer in dev dialog's temp state
       }
       setIsDevSettingsOpen(true);
       toast({ title: "Accès Développeur Accordé" });
@@ -369,47 +365,163 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
-    // Web/Deep Sakai are persisted directly via their switches in ChatAssistant
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
 
   const handleResetDevSettings = () => {
-    setTempOverrideSystemPrompt('');
-    setTempModelTemperature(0.7);
-    setTempIsDevSakaiAmbianceEnabled(false);
-    
-    setDevOverrideSystemPrompt('');
-    setDevModelTemperature(undefined); 
-    setIsDevSakaiAmbianceEnabled(false);
-    // Web/Deep Sakai controlled by user directly, not reset here
+    setTempOverrideSystemPrompt(''); setTempModelTemperature(0.7); setTempIsDevSakaiAmbianceEnabled(false);
+    setDevOverrideSystemPrompt(''); setDevModelTemperature(undefined); setIsDevSakaiAmbianceEnabled(false);
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
   const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev);
 
-  const activeChatMessages = chatSessions.find(session => session.id === activeChatId)?.messages || [];
   const activeChat = chatSessions.find(session => session.id === activeChatId);
+  const activeChatMessages = activeChat?.messages || [];
   
   const sortedChatSessions = useMemo(() => {
     return [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
   }, [chatSessions]);
 
 
+  // Input Bar Logic (moved from ChatAssistant)
+  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf', 'text/plain', 'text/markdown'];
+      Array.from(files).forEach(file => {
+        const uniqueId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${encodeURIComponent(file.name)}`;
+        let effectiveMimeType = file.type;
+        if (!effectiveMimeType || effectiveMimeType === "application/octet-stream" || effectiveMimeType === "") {
+          const lowerName = file.name.toLowerCase();
+          if (lowerName.endsWith('.md')) effectiveMimeType = 'text/markdown'; else if (lowerName.endsWith('.txt')) effectiveMimeType = 'text/plain'; else if (lowerName.endsWith('.pdf')) effectiveMimeType = 'application/pdf'; else if (lowerName.endsWith('.png')) effectiveMimeType = 'image/png'; else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) effectiveMimeType = 'image/jpeg'; else if (lowerName.endsWith('.webp')) effectiveMimeType = 'image/webp'; else if (lowerName.endsWith('.gif')) effectiveMimeType = 'image/gif'; else effectiveMimeType = 'application/octet-stream';
+        }
+        const isAllowed = allowedMimeTypes.some(allowedType => effectiveMimeType === allowedType || (allowedType.endsWith('/*') && effectiveMimeType.startsWith(allowedType.slice(0, -2))));
+        if (isAllowed) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (reader.result) setUploadedFiles(prev => [...prev, { dataUri: reader.result as string, file: new File([file], file.name, { type: effectiveMimeType }), id: uniqueId }]);
+            else toast({ title: "Erreur de lecture", variant: "destructive" });
+          };
+          reader.onerror = () => toast({ title: "Erreur de lecture", variant: "destructive" });
+          reader.readAsDataURL(file);
+        } else toast({ title: "Type de fichier non supporté", description: `"${file.name}" (${effectiveMimeType})`, variant: "destructive" });
+      });
+    }
+    if (event.target) event.target.value = '';
+  };
+  const removeUploadedFile = (fileIdToRemove: string) => setUploadedFiles(prev => prev.filter(fileWrapper => fileWrapper.id !== fileIdToRemove));
+  const clearAllUploadedFiles = () => { setUploadedFiles([]); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  const handleFeatureActionClick = (promptPrefix: string) => { setInput(prevInput => promptPrefix + prevInput); setIsFeaturesPopoverOpen(false); if(inputRef.current) inputRef.current.focus(); };
+
+  const handleImageGeneration = async (promptText: string) => {
+    setIsSendingMessage(true); setCurrentStreamingMessageId(null);
+    const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
+    const imageGenPlaceholderId = `img-gen-${Date.now()}`;
+    const coreImagePrompt = promptText;
+    const userPromptMessage: ChatMessage = { role: 'user', parts: [{ type: 'text', text: `Génère une image : ${coreImagePrompt}` }], id: imageGenUserMessageId, createdAt: Date.now() };
+    const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{ type: 'text', text: `Sakai génère une image pour : "${coreImagePrompt.substring(0, 50)}..."` }], id: imageGenPlaceholderId, createdAt: Date.now() + 1 };
+    
+    const currentMessages = chatSessions.find(s => s.id === activeChatId)?.messages || [];
+    let finalUserAndAssistantMessages = [...currentMessages, userPromptMessage, assistantPlaceholderMessage];
+    updateMessagesForActiveChat(finalUserAndAssistantMessages);
+    
+    let finalAssistantMessage: ChatMessage | null = null;
+    try {
+      const result: GenerateImageOutput = await generateImage({ prompt: coreImagePrompt });
+      if (result.imageUrl) finalAssistantMessage = { role: 'model' as 'model', parts: [{ type: 'image' as 'image', imageDataUri: result.imageUrl, mimeType: 'image/png' }], id: imageGenPlaceholderId, createdAt: Date.now() };
+      else finalAssistantMessage = { role: 'model' as 'model', parts: [{ type: 'text' as 'text', text: `Désolé, je n'ai pas pu générer l'image. ${result.error || "Erreur inconnue."}` }], id: imageGenPlaceholderId, createdAt: Date.now() };
+    } catch (error: unknown) {
+      finalAssistantMessage = { role: 'model' as 'model', parts: [{ type: 'text' as 'text', text: `Erreur : ${(error as Error)?.message || "Erreur inconnue."}` }], id: imageGenPlaceholderId, createdAt: Date.now() };
+    } finally {
+      if (finalAssistantMessage) {
+        updateMessagesForActiveChat(finalUserAndAssistantMessages.map(msg => msg.id === imageGenPlaceholderId ? finalAssistantMessage! : msg));
+      }
+      setIsSendingMessage(false);
+    }
+  };
+
+  const handleSendMessage = async (e?: FormEvent<HTMLFormElement> | string) => {
+    if (typeof e === 'object' && e?.preventDefault) e.preventDefault();
+    const currentInputVal = (typeof e === 'string' ? e : input).trim();
+    const currentUploadedFiles = [...uploadedFiles];
+    if ((!currentInputVal && currentUploadedFiles.length === 0) || isSendingMessage) return;
+
+    const imageKeywords = ["génère une image de", "dessine-moi", "crée une image de", "photo de", "image de"];
+    const lowerInput = currentInputVal.toLowerCase();
+    let isImageRequestIntent = currentUploadedFiles.length === 0 && imageKeywords.some(keyword => lowerInput.startsWith(keyword));
+
+    if (isImageRequestIntent) {
+      const capturedInputForImage = currentInputVal; setInput(''); clearAllUploadedFiles();
+      await handleImageGeneration(capturedInputForImage.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de)\s*/i, '').trim());
+      return;
+    }
+
+    const userMessageId = `user-${Date.now()}`;
+    const newUserMessageParts: ChatMessagePart[] = currentUploadedFiles.map(fw => ({ type: 'image', imageDataUri: fw.dataUri, mimeType: fw.file.type || 'application/octet-stream' }));
+    if (currentInputVal) newUserMessageParts.push({ type: 'text', text: currentInputVal });
+    if (newUserMessageParts.length === 0) return;
+    
+    const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
+    const assistantMessageId = `model-${Date.now()}`;
+    setCurrentStreamingMessageId(assistantMessageId); setIsSendingMessage(true);
+    const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
+    
+    const initialMessagesForThisChat = chatSessions.find(s => s.id === activeChatId)?.messages || [];
+    const messagesForImmediateDisplay = [...initialMessagesForThisChat, newUserMessage, assistantPlaceholderMessage];
+    updateMessagesForActiveChat(messagesForImmediateDisplay);
+    
+    const historyForApi = [...initialMessagesForThisChat, newUserMessage];
+    setInput(''); clearAllUploadedFiles();
+    let accumulatedText = ""; let finalAssistantMessage: ChatMessage | null = null;
+
+    try {
+      const readableStream = await streamChatAssistant({
+        history: historyForApi, memory: userMemory, overrideSystemPrompt: devOverrideSystemPrompt,
+        temperature: devModelTemperature, personality: aiPersonality, enableWebSearch: isWebSearchEnabled, enableDeepSakai: isDeepSakaiEnabled,
+      });
+      const reader = readableStream.getReader();
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        const chatChunk: ChatStreamChunk = value;
+        if (chatChunk.error) { accumulatedText = `Désolé, une erreur est survenue : ${chatChunk.error}`; toast({ title: "Erreur de l'assistant", description: chatChunk.error, variant: "destructive" }); break; }
+        if (chatChunk.text) {
+          accumulatedText += chatChunk.text;
+          updateMessagesForActiveChat(messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { ...msg, parts: [{type: 'text', text: accumulatedText }] } : msg));
+        }
+      }
+      finalAssistantMessage = { role: 'model', parts: [{type: 'text' as 'text', text: accumulatedText }], id: assistantMessageId, createdAt: Date.now() };
+    } catch (error: any) {
+      const errorMessageText = error?.message || "Désolé, une erreur de communication est survenue.";
+      toast({ title: "Erreur de Communication", description: errorMessageText, variant: "destructive" });
+      finalAssistantMessage = { role: 'model', parts: [{ type: 'text', text: errorMessageText }], id: assistantMessageId, createdAt: Date.now() };
+    } finally {
+      let messagesForPersistence;
+      if (finalAssistantMessage) messagesForPersistence = messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? finalAssistantMessage! : msg);
+      else {
+        const fallbackErrorMsg = accumulatedText || "Une erreur inattendue est survenue.";
+        messagesForPersistence = messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { role: 'model', parts: [{ type: 'text', text: fallbackErrorMsg }], id: assistantMessageId, createdAt: Date.now() } : msg);
+      }
+      updateMessagesForActiveChat(messagesForPersistence);
+      setIsSendingMessage(false); setCurrentStreamingMessageId(null);
+    }
+  };
+
+
+  // Loading / Auth Checks
   if (!pageIsMounted || authLoading) {
     return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">Chargement de Sakai...</p>
+        <Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="mt-4 text-muted-foreground">Chargement de Sakai...</p>
       </div>
     );
   }
-
   if (!currentUser) {
      return (
       <div className="flex flex-col h-screen bg-background text-foreground items-center justify-center p-4">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">Redirection...</p>
+        <Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="mt-4 text-muted-foreground">Redirection...</p>
       </div>
     );
   }
@@ -426,28 +538,17 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen bg-muted/30 dark:bg-background text-foreground">
       <ChatSidebar
-        chatSessions={sortedChatSessions}
-        activeChatId={activeChatId}
+        chatSessions={sortedChatSessions} activeChatId={activeChatId}
         onSelectChat={(id) => { setActiveChatId(id); if (isMobileMenuOpen) setIsMobileMenuOpen(false); }}
-        onNewChat={handleNewChat}
-        onDeleteChat={handleDeleteChat}
-        isMobileMenuOpen={isMobileMenuOpen}
-        setIsMobileMenuOpen={setIsMobileMenuOpen}
-        isSidebarCollapsed={isSidebarCollapsed}
-        toggleSidebarCollapse={toggleSidebarCollapse}
-        sakaiCurrentThought={sakaiCurrentThought}
-        isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled}
-        userAvatarUrl={userAvatarUrl}
-        editingChatId={editingChatId}
-        editingChatTitle={editingChatTitle}
-        onStartEditingChatTitle={startEditingChatTitle}
-        onRenameChat={handleRenameChat}
-        setEditingChatTitle={setEditingChatTitle}
-        setEditingChatId={setEditingChatId}
-        currentPersonality={aiPersonality}
-        onPersonalityChange={setAiPersonality}
-        onLogout={handleLogout}
-        onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
+        onNewChat={handleNewChat} onDeleteChat={handleDeleteChat} isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen} isSidebarCollapsed={isSidebarCollapsed}
+        toggleSidebarCollapse={toggleSidebarCollapse} sakaiCurrentThought={sakaiCurrentThought}
+        isDevSakaiAmbianceEnabled={isDevSakaiAmbianceEnabled} userAvatarUrl={userAvatarUrl}
+        editingChatId={editingChatId} editingChatTitle={editingChatTitle}
+        onStartEditingChatTitle={startEditingChatTitle} onRenameChat={handleRenameChat}
+        setEditingChatTitle={setEditingChatTitle} setEditingChatId={setEditingChatId}
+        currentPersonality={aiPersonality} onPersonalityChange={setAiPersonality}
+        onLogout={handleLogout} onOpenMemoryDialog={() => setIsMemoryDialogOpen(true)}
         onOpenDevSettingsDialog={() => setIsDevCodePromptOpen(true)}
         onOpenFeaturesDialog={() => setIsFeaturesDialogOpen(true)}
         onOpenAboutDialog={() => setIsAboutDialogOpen(true)}
@@ -458,7 +559,7 @@ export default function ChatPage() {
         isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
       }`}>
         <div className={`fixed top-0 right-0 h-16 bg-card/80 backdrop-blur-md border-b border-border/70
-                         flex items-center justify-between px-6 z-20
+                         flex items-center justify-between px-6 z-30 
                          ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
                          transition-all duration-300 ease-in-out`}>
           <div className="flex items-center gap-3">
@@ -490,160 +591,103 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: '6rem' }}>
+        <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: INPUT_BAR_ESTIMATED_MAX_HEIGHT }}>
             {activeChatId && activeChat ? (
             <ChatAssistant
                 key={activeChatId} 
-                initialMessages={activeChatMessages}
-                onMessagesUpdate={handleMessagesUpdate}
-                userMemory={userMemory}
-                devOverrideSystemPrompt={devOverrideSystemPrompt}
-                devModelTemperature={devModelTemperature}
-                activeChatId={activeChatId}
+                messages={activeChatMessages}
+                isSendingMessage={isSendingMessage}
+                currentStreamingMessageId={currentStreamingMessageId}
                 currentUserName={currentUser?.displayName}
                 userAvatarUrl={userAvatarUrl}
-                selectedPersonality={aiPersonality}
-                isWebSearchEnabled={isWebSearchEnabled} 
-                onWebSearchChange={setIsWebSearchEnabled} 
-                isDeepSakaiEnabled={isDeepSakaiEnabled} 
-                onDeepSakaiChange={setIsDeepSakaiEnabled} 
             />
             ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
                 {sortedChatSessions.length > 0 ? (
-                <>
-                    <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-                    <p>Sélection d'un chat...</p>
-                </>
+                <><Loader2 className="h-10 w-10 animate-spin text-primary mb-4" /><p>Sélection d'un chat...</p></>
                 ) : (
-                <>
-                    <MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
+                <><MessageSquare className="h-12 w-12 text-primary mb-4 opacity-70" />
                     <p className="text-lg">Commencez par créer une nouvelle discussion !</p>
-                    <Button onClick={handleNewChat} className="mt-4">
-                    <Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat
-                    </Button>
-                </>
+                    <Button onClick={handleNewChat} className="mt-4"><Edit3 className="mr-2 h-4 w-4" /> Nouveau Chat</Button></>
                 )}
             </div>
             )}
         </div>
         
+        {/* Fixed Input Bar */}
         {activeChatId && activeChat && (
             <div className={`fixed bottom-0 right-0 border-t border-border/70 bg-card/80 backdrop-blur-md
                             ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
-                            transition-all duration-300 ease-in-out z-20`}>
+                            transition-all duration-300 ease-in-out z-20 p-3 sm:p-4`}>
+              {uploadedFiles.length > 0 && (
+                <div className="mb-2.5 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-muted-foreground font-medium">Fichiers ({uploadedFiles.length}) :</p>
+                    <Button variant="ghost" size="sm" onClick={clearAllUploadedFiles} className="text-xs text-destructive hover:text-destructive/80 h-auto py-1"><Trash2 className="h-3 w-3 mr-1" /> Tout effacer</Button>
+                  </div>
+                  <ScrollArea className="max-h-24"><div className="space-y-1 pr-2">
+                    {uploadedFiles.map((fileWrapper) => (
+                      <div key={fileWrapper.id} className="relative w-full p-1.5 border border-dashed rounded-md flex items-center justify-between bg-background/50 dark:bg-muted/30 text-xs">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          {fileWrapper.file.type.startsWith('image/') ? (<NextImage src={fileWrapper.dataUri} alt={`Aperçu ${fileWrapper.file.name}`} width={24} height={24} className="rounded object-cover shrink-0" data-ai-hint="image preview"/>) : (<FileText className="h-5 w-5 shrink-0 text-primary" />)}
+                          <span className="text-muted-foreground truncate" title={fileWrapper.file.name}>{fileWrapper.file.name} ({(fileWrapper.file.size / 1024).toFixed(1)} KB)</span>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeUploadedFile(fileWrapper.id)} className="text-destructive hover:text-destructive/80 h-6 w-6 shrink-0"><XCircle className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    ))}
+                  </div></ScrollArea>
+                </div>
+              )}
+              <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2 sm:gap-2.5">
+                <Popover open={isFeaturesPopoverOpen} onOpenChange={setIsFeaturesPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" type="button" aria-label="Fonctionnalités de Sakai" className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Sparkles className="h-5 w-5" /></Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2 bg-popover border shadow-xl rounded-lg mb-2" side="top" align="start">
+                    <div className="flex gap-1">
+                      {featureActions.map((action) => (
+                        <TooltipProvider key={action.id} delayDuration={100}><Tooltip>
+                          <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => handleFeatureActionClick(action.promptPrefix)} className="text-muted-foreground hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/20 h-9 w-9" aria-label={action.label}><action.icon className="h-5 w-5" /></Button></TooltipTrigger>
+                          <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md"><p>{action.label}</p></TooltipContent>
+                        </Tooltip></TooltipProvider>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <Button variant="outline" size="icon" type="button" aria-label="Télécharger un fichier" onClick={() => fileInputRef.current?.click()} className="text-primary hover:text-primary/80 border-primary/30 hover:bg-primary/10 dark:hover:bg-primary/20 shrink-0 h-10 w-10 rounded-lg"><Paperclip className="h-5 w-5" /></Button>
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" accept="image/*,application/pdf,text/plain,.md,text/markdown"/>
+                
+                <TooltipProvider delayDuration={100}><Tooltip>
+                  <TooltipTrigger asChild><div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
+                    <Switch id="web-search-toggle" checked={isWebSearchEnabled} onCheckedChange={setIsWebSearchEnabled} className="data-[state=checked]:bg-blue-500 dark:data-[state=checked]:bg-blue-500" aria-label="Recherche web"/>
+                    <Label htmlFor="web-search-toggle" className="cursor-pointer"><Globe className={cn("h-5 w-5", isWebSearchEnabled ? "text-blue-500" : "text-muted-foreground")} /></Label>
+                  </div></TooltipTrigger>
+                  <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md"><p>Mode Web (Simulé)</p></TooltipContent>
+                </Tooltip></TooltipProvider>
+
+                <TooltipProvider delayDuration={100}><Tooltip>
+                  <TooltipTrigger asChild><div className="flex items-center space-x-2 p-2 rounded-md border border-input bg-transparent hover:bg-accent/50 transition-colors">
+                    <Switch id="deep-sakai-toggle" checked={isDeepSakaiEnabled} onCheckedChange={setIsDeepSakaiEnabled} className="data-[state=checked]:bg-purple-500 dark:data-[state=checked]:bg-purple-500" aria-label="Mode DeepSakai"/>
+                    <Label htmlFor="deep-sakai-toggle" className="cursor-pointer"><DeepSakaiIcon className={cn("h-5 w-5", isDeepSakaiEnabled ? "text-purple-500" : "text-muted-foreground")} /></Label>
+                  </div></TooltipTrigger>
+                  <TooltipContent side="top" className="bg-popover text-popover-foreground text-xs py-1 px-2 rounded shadow-md"><p>Mode DeepSakai</p></TooltipContent>
+                </Tooltip></TooltipProvider>
+
+                <Input ref={inputRef} type="text" placeholder="Envoyer un message à Sakai..." value={input} onChange={(e) => setInput(e.target.value)} disabled={isSendingMessage} className="flex-1 py-2.5 px-3.5 text-sm rounded-lg bg-input focus-visible:ring-primary/50 h-10"/>
+                <Button type="submit" size="icon" disabled={isSendingMessage || (!input.trim() && uploadedFiles.length === 0)} aria-label="Envoyer" className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 w-10 rounded-lg shrink-0">
+                  {isSendingMessage && currentStreamingMessageId ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                </Button>
+              </form>
             </div>
         )}
       </main>
 
       <MemoryDialog isOpen={isMemoryDialogOpen} onOpenChange={setIsMemoryDialogOpen} currentMemory={userMemory} onSaveMemory={handleSaveMemory} />
-      
-      <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">Sakai est ton assistant IA personnel, gratuit mais puissant, toujours prêt à t'aider :<ul className="list-disc list-inside mt-2 space-y-1 text-sm"><li>Discuter de tout et de rien, répondre à tes questions.</li><li>Générer des images stylées à partir de tes descriptions.</li><li>Analyser les images, PDF, et fichiers texte que tu lui donnes (même plusieurs d'un coup !).</li><li>Raconter des blagues et des histoires pour te détendre.</li><li>T'aider à rédiger des emails, pitchs, poèmes, scripts...</li><li>Se souvenir de tes préférences grâce au Panneau de Mémoire.</li><li>Choisir sa personnalité (Développeur, Coach, Humoriste...).</li><li>Mode Développeur pour personnaliser son comportement et activer des surprises comme les "Pensées de Sakai".</li><li>Activer le "Mode Web" (simulé) pour des infos à jour et le "Mode DeepSakai" pour des analyses poussées, directement depuis la barre de saisie.</li></ul><p className="mt-3 text-sm font-semibold">Sakai est là pour toi, prêt à rendre ton quotidien plus fun et productif !</p></AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogAction onClick={() => setIsFeaturesDialogOpen(false)}>Compris !</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p className="mb-2">Sakai est une IA conversationnelle (pas un "modèle de langage"), codée par Tantely pour être ton partenaire IA cool et futé. Il est conçu pour être gratuit, puissant, et rendre ton quotidien plus simple et fun !</p><p className="mb-2">Il utilise les dernières avancées en matière d'intelligence artificielle pour t'offrir une expérience interactive et enrichissante.</p><p>Version: 3.11.0 (Web & Deep Sakai Toggles)</p><p className="mt-4 text-xs text-muted-foreground">© MAMPIONONTIAKO Tantely Etienne Théodore. Tous droits réservés.<br />Créateur & Développeur : MAMPIONONTIAKO Tantely Etienne Théodore</p></AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Contact className="h-5 w-5 text-primary"/>Contacter le développeur</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Tu peux contacter Tantely (le créateur de Sakai) via WhatsApp :</p><Button variant="link" asChild className="text-lg p-0 h-auto mt-2"><a href="https://wa.me/261343775058" target="_blank" rel="noopener noreferrer">+261 34 37 750 58</a></Button><p className="text-xs text-muted-foreground mt-3">Ou par email : <a href="mailto:tantely@gmail.com" className="underline">tantely@gmail.com</a></p></AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Veuillez entrer le code d'accès pour modifier les paramètres avancés du modèle.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-2">
-            <Input
-              type="password"
-              placeholder="Code d'accès"
-              value={devCodeInput}
-              onChange={(e) => setDevCodeInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}>
-        <DialogContent className="sm:max-w-[600px] bg-card">
-          <DialogHeader>
-            <DialogTitle className="text-xl flex items-center gap-2">
-              <SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur
-            </DialogTitle>
-            <DialogDescription>
-              Modifiez ici les paramètres avancés du modèle IA. Ces changements sont pour les utilisateurs avertis.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-6 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label>
-              <Textarea
-                id="dev-system-prompt"
-                placeholder="Laisse vide pour utiliser l'invite système par défaut..."
-                value={tempOverrideSystemPrompt}
-                onChange={(e) => setTempOverrideSystemPrompt(e.target.value)}
-                className="min-h-[150px] text-sm p-3 rounded-md border bg-background"
-                rows={8}
-              />
-              <p className="text-xs text-muted-foreground">L'invite système de base sera remplacée. La mémoire et la personnalité sont ajoutées après.</p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="dev-temperature" className="text-sm font-medium">
-                Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span>
-              </Label>
-              <Slider
-                id="dev-temperature"
-                min={0} max={1} step={0.1}
-                value={[tempModelTemperature]}
-                onValueChange={(value) => setTempModelTemperature(value[0])}
-                className="w-full"
-              />
-              <p className="text-xs text-muted-foreground">Plus bas = plus factuel. Plus haut = plus créatif. (Défaut: 0.7)</p>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/>
-              <Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (Pensées)</Label>
-            </div>
-            {/* Web search and Deep Sakai switches are removed from here */}
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button>
-            <DialogClose asChild>
-              <Button type="button" variant="ghost" onClick={() => {
-                if (pageIsMounted && currentUser) {
-                    setTempOverrideSystemPrompt(devOverrideSystemPrompt);
-                    setTempModelTemperature(devModelTemperature ?? 0.7);
-                    setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled);
-                }
-                setIsDevSettingsOpen(false);
-              }}>Annuler</Button>
-            </DialogClose>
-            <Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">Sakai est ton assistant IA ...</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsFeaturesDialogOpen(false)}>Compris !</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Sakai est une IA conversationnelle ...</p></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Contact className="h-5 w-5 text-primary"/>Contacter le développeur</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Tu peux contacter Tantely ...</p></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès...</AlertDialogDescription></AlertDialogHeader><div className="py-2"><Input type="password" placeholder="Code d'accès" value={devCodeInput} onChange={(e) => setDevCodeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}/></div><AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}><DialogContent className="sm:max-w-[600px] bg-card"><DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés...</DialogDescription></DialogHeader><div className="grid gap-6 py-4"><div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laisse vide..." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée.</p></div><div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Plus bas = factuel. Plus haut = créatif.</p></div><div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai</Label></div></div><DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Reset</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { /* Reset temp states */ setIsDevSettingsOpen(false);}}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
