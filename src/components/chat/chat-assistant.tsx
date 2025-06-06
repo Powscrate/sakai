@@ -1,3 +1,4 @@
+
 // src/components/chat/chat-assistant.tsx
 "use client";
 
@@ -59,10 +60,6 @@ interface ChatAssistantProps {
   currentStreamingMessageId: string | null;
   currentUserName?: string | null;
   userAvatarUrl: string | null;
-  isWebSearchEnabled: boolean;
-  onWebSearchChange: (checked: boolean) => void;
-  isDeepSakaiEnabled: boolean;
-  onDeepSakaiChange: (checked: boolean) => void;
 }
 
 export function ChatAssistant({
@@ -308,7 +305,7 @@ export function ChatAssistant({
                 Comment puis-je vous aider aujourd'hui, {currentUserName || "l'ami"} ?
               </p>
               <p className="text-sm 2xl:text-base max-w-md text-muted-foreground">
-                Posez-moi une question, téléversez des fichiers pour analyse, ou demandez-moi de générer une image.
+                Posez-moi une question, téléversez des fichiers pour analyse, ou demandez-moi de générer une image. Activez le Mode Web pour des infos récentes ou le Mode DeepSakai pour des réflexions poussées.
               </p>
             </div>
           )}
