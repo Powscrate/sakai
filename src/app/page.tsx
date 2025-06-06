@@ -224,7 +224,7 @@ export default function ChatPage() {
     setInput('');
     setUploadedFiles([]);
     if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuОpen]);
+  }, [currentUser, setChatSessions, setActiveChatId, isMobileMenuOpen]);
 
   useEffect(() => {
     if (!pageIsMounted || authLoading || !currentUser) return;
@@ -249,11 +249,14 @@ export default function ChatPage() {
   }, [activeChatId, isFeaturesPopoverOpen]);
 
 
-  const updateMessagesForActiveChat = useCallback((updatedMessages: ChatMessage[]) => {
-    if (!currentUser || !activeChatId) return;
+  const updateMessagesForActiveChat = useCallback((updatedMessages: ChatMessage[], newActiveChatId?: string) => {
+    if (!currentUser) return;
+    const targetChatId = newActiveChatId || activeChatId;
+    if (!targetChatId) return;
+
     setChatSessions(prevSessions =>
       prevSessions.map(session =>
-        session.id === activeChatId
+        session.id === targetChatId
           ? { ...session, messages: updatedMessages }
           : session
       )
@@ -279,7 +282,7 @@ export default function ChatPage() {
             if (titleOutput.title && !titleOutput.error) {
               setChatSessions(prevSessions =>
                 prevSessions.map(s =>
-                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s // Only update title, messages are already there
+                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s 
                 )
               );
             } else if (titleOutput.error) console.warn("Error generating chat title:", titleOutput.error);
@@ -365,6 +368,8 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
+    // Do not touch isWebSearchEnabled or isDeepSakaiEnabled here
+    // as they are controlled by the user in the input bar now.
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
@@ -372,14 +377,15 @@ export default function ChatPage() {
   const handleResetDevSettings = () => {
     setTempOverrideSystemPrompt(''); setTempModelTemperature(0.7); setTempIsDevSakaiAmbianceEnabled(false);
     setDevOverrideSystemPrompt(''); setDevModelTemperature(undefined); setIsDevSakaiAmbianceEnabled(false);
+    // Do not touch isWebSearchEnabled or isDeepSakaiEnabled here
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
   const toggleSidebarCollapse = () => setIsSidebarCollapsed(prev => !prev);
 
   const activeChat = chatSessions.find(session => session.id === activeChatId);
-  const activeChatMessages = activeChat?.messages || [];
   
+  // Memoize sorted sessions to prevent re-sorting on every render unless chatSessions changes
   const sortedChatSessions = useMemo(() => {
     return [...chatSessions].sort((a, b) => b.createdAt - a.createdAt);
   }, [chatSessions]);
@@ -416,6 +422,10 @@ export default function ChatPage() {
   const handleFeatureActionClick = (promptPrefix: string) => { setInput(prevInput => promptPrefix + prevInput); setIsFeaturesPopoverOpen(false); if(inputRef.current) inputRef.current.focus(); };
 
   const handleImageGeneration = async (promptText: string) => {
+    if (!activeChatId) {
+      toast({ title: "Aucun chat actif", description: "Veuillez sélectionner ou créer un chat.", variant: "destructive" });
+      return;
+    }
     setIsSendingMessage(true); setCurrentStreamingMessageId(null);
     const imageGenUserMessageId = `user-img-prompt-${Date.now()}`;
     const imageGenPlaceholderId = `img-gen-${Date.now()}`;
@@ -447,6 +457,11 @@ export default function ChatPage() {
     const currentInputVal = (typeof e === 'string' ? e : input).trim();
     const currentUploadedFiles = [...uploadedFiles];
     if ((!currentInputVal && currentUploadedFiles.length === 0) || isSendingMessage) return;
+
+    if (!activeChatId) {
+      toast({ title: "Aucun chat actif", description: "Veuillez sélectionner ou créer un chat.", variant: "destructive" });
+      return;
+    }
 
     const imageKeywords = ["génère une image de", "dessine-moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInputVal.toLowerCase();
@@ -595,11 +610,15 @@ export default function ChatPage() {
             {activeChatId && activeChat ? (
             <ChatAssistant
                 key={activeChatId} 
-                messages={activeChatMessages}
+                messages={activeChat.messages}
                 isSendingMessage={isSendingMessage}
                 currentStreamingMessageId={currentStreamingMessageId}
                 currentUserName={currentUser?.displayName}
                 userAvatarUrl={userAvatarUrl}
+                isWebSearchEnabled={isWebSearchEnabled}
+                onWebSearchChange={setIsWebSearchEnabled}
+                isDeepSakaiEnabled={isDeepSakaiEnabled}
+                onDeepSakaiChange={setIsDeepSakaiEnabled}
             />
             ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 pt-16">
@@ -691,3 +710,4 @@ export default function ChatPage() {
     </div>
   );
 }
+
