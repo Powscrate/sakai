@@ -21,7 +21,7 @@ import {
   Loader2, Settings, Brain, Info, Contact, Zap, MessageSquare, Brush, Wand2,
   SlidersHorizontal, User as UserIconImport, Edit3, MoreVertical, LogOut as LogOutIcon, PanelLeftClose, PanelRightClose,
   Mail, Plane, Lightbulb, Languages, ImageIcon as ImageIconLucide, Laugh, Sparkles, Globe, Bot as DeepSakaiIcon,
-  Send, Paperclip, XCircle, FileText, Trash2
+  Send, Paperclip, XCircle, FileText, Trash2, Download as DownloadIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
@@ -102,7 +102,6 @@ export default function ChatPage() {
   const [devModelTemperature, setDevModelTemperature] = useLocalStorage<number | undefined>(getDevModelTemperatureKey(currentUser?.uid), undefined);
   const [isDevSakaiAmbianceEnabled, setIsDevSakaiAmbianceEnabled] = useLocalStorage<boolean>(getDevSakaiAmbianceEnabledKey(currentUser?.uid), false);
   
-  // These are now user-facing controls, managed directly by user actions.
   const [isWebSearchEnabled, setIsWebSearchEnabled] = useLocalStorage<boolean>(getWebSearchEnabledKey(currentUser?.uid), false);
   const [isDeepSakaiEnabled, setIsDeepSakaiEnabled] = useLocalStorage<boolean>(getDeepSakaiEnabledKey(currentUser?.uid), false);
 
@@ -130,7 +129,6 @@ export default function ChatPage() {
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
 
-  // Input bar related state
   const [input, setInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileWrapper[]>([]);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -379,7 +377,6 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
-    // isWebSearchEnabled and isDeepSakaiEnabled are controlled directly by UI switches now
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
@@ -387,9 +384,6 @@ export default function ChatPage() {
   const handleResetDevSettings = () => {
     setTempOverrideSystemPrompt(''); setTempModelTemperature(0.7); setTempIsDevSakaiAmbianceEnabled(false);
     setDevOverrideSystemPrompt(''); setDevModelTemperature(undefined); setIsDevSakaiAmbianceEnabled(false);
-    // Also reset user-facing direct controls if desired, or keep them separate
-    // setIsWebSearchEnabled(false); 
-    // setIsDeepSakaiEnabled(false);
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
@@ -473,7 +467,7 @@ export default function ChatPage() {
       return;
     }
 
-    setIsSendingMessage(true); // Set isSendingMessage to true here
+    setIsSendingMessage(true);
 
     const imageKeywords = ["génère une image de", "dessine-moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInputVal.toLowerCase();
@@ -481,8 +475,6 @@ export default function ChatPage() {
 
     if (isImageRequestIntent) {
       const capturedInputForImage = currentInputVal; setInput(''); clearAllUploadedFiles();
-      // Note: handleImageGeneration sets isSendingMessage to false in its finally block.
-      // We already set it to true above, so this is fine.
       await handleImageGeneration(capturedInputForImage.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de)\s*/i, '').trim());
       return; 
     }
@@ -491,7 +483,7 @@ export default function ChatPage() {
     const newUserMessageParts: ChatMessagePart[] = currentUploadedFiles.map(fw => ({ type: 'image', imageDataUri: fw.dataUri, mimeType: fw.file.type || 'application/octet-stream' }));
     if (currentInputVal) newUserMessageParts.push({ type: 'text', text: currentInputVal });
     if (newUserMessageParts.length === 0) {
-        setIsSendingMessage(false); // Reset if no parts
+        setIsSendingMessage(false);
         return;
     }
     
@@ -544,6 +536,55 @@ export default function ChatPage() {
     }
   };
 
+  const handleExportChat = () => {
+    if (!activeChat) {
+      toast({ title: "Aucun chat actif", description: "Impossible d'exporter.", variant: "destructive" });
+      return;
+    }
+
+    let chatContent = `Titre: ${activeChat.title}\n`;
+    chatContent += `Date de création: ${new Date(activeChat.createdAt).toLocaleString('fr-FR')}\n\n`;
+    chatContent += "---- MESSAGES ----\n\n";
+
+    activeChat.messages.forEach(message => {
+      const prefix = message.role === 'user' ? 'Utilisateur:' : 'Sakai:';
+      chatContent += `${prefix}\n`;
+      message.parts.forEach(part => {
+        if (part.type === 'text') {
+          chatContent += `${part.text}\n`;
+        } else if (part.type === 'image' && part.imageDataUri) {
+          let filename = 'media_attache';
+          try {
+            // Try to get a name from common data URI patterns or mime type
+            if (part.imageDataUri.includes('name=')) { // Very specific case for some data URIs
+                const nameMatch = part.imageDataUri.match(/name=([^;,]+)/);
+                if (nameMatch && nameMatch[1]) filename = decodeURIComponent(nameMatch[1]);
+            } else if (part.mimeType) {
+                const extension = part.mimeType.split('/')[1] || 'bin';
+                filename = `fichier_media.${extension}`;
+            }
+          } catch (e) { /* ignore errors in filename heuristic */ }
+          chatContent += `[Fichier Média: ${filename} (${part.mimeType || 'inconnu'})]\n`;
+        }
+      });
+      chatContent += "--------------------\n";
+    });
+
+    const blob = new Blob([chatContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    // Sanitize title for filename
+    const safeTitle = activeChat.title.replace(/[^a-z0-9_.-]/gi, '_').substring(0, 50);
+    link.download = `Sakai_Chat_${safeTitle || 'export'}_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({ title: "Chat exporté", description: "La conversation a été téléchargée." });
+  };
+
 
   if (!pageIsMounted || authLoading) {
     return (
@@ -563,6 +604,7 @@ export default function ChatPage() {
   const moreOptionsMenuItems = [
     { label: "Profil", icon: UserIconImport, action: () => router.push('/profile') },
     { label: "Panneau de Mémoire", icon: Brain, action: () => setIsMemoryDialogOpen(true) },
+    { label: "Exporter ce Chat", icon: DownloadIcon, action: handleExportChat },
     { label: "Mode Développeur", icon: SlidersHorizontal, action: () => setIsDevCodePromptOpen(true) },
     { label: "Fonctionnalités de Sakai", icon: Zap, action: () => setIsFeaturesDialogOpen(true) },
     { label: "Contacter le créateur", icon: Contact, action: () => setIsContactDialogOpen(true) },
