@@ -238,7 +238,7 @@ export default function ChatPage() {
       const sortedSessions = [...currentSessions].sort((a, b) => b.createdAt - a.createdAt);
       setActiveChatId(sortedSessions[0]?.id || null);
     }
-  }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat]);
+  }, [pageIsMounted, currentUser, authLoading, chatSessions, activeChatId, handleNewChat, setActiveChatId]);
   
   useEffect(() => {
     if (activeChatId) {
@@ -263,11 +263,14 @@ export default function ChatPage() {
   }, [currentUser, activeChatId, setChatSessions]);
 
   useEffect(() => {
-    if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted) return;
-    const activeSession = chatSessions.find(s => s.id === activeChatId);
+    if (!currentUser || !activeChatId || isGeneratingTitle || !pageIsMounted || isSendingMessage) return;
+
+    const currentChatIdForTitleGen = activeChatId; 
+    const activeSession = chatSessions.find(s => s.id === currentChatIdForTitleGen);
+    
     if (activeSession && (activeSession.title === "Nouveau Chat" || activeSession.title === "Nouvelle Discussion") && activeSession.messages.length > 0) {
       const contextMessages = activeSession.messages
-        .slice(0, 2)
+        .slice(0, 2) 
         .map(msg => ({
           role: msg.role,
           parts: msg.parts.filter(part => part.type === 'text').map(part => ({ type: 'text' as 'text', text: part.text }))
@@ -281,16 +284,16 @@ export default function ChatPage() {
             if (titleOutput.title && !titleOutput.error) {
               setChatSessions(prevSessions =>
                 prevSessions.map(s =>
-                  s.id === activeChatId ? { ...s, title: titleOutput.title } : s 
+                  s.id === currentChatIdForTitleGen ? { ...s, title: titleOutput.title } : s 
                 )
               );
-            } else if (titleOutput.error) console.warn("Error generating chat title:", titleOutput.error);
+            } else if (titleOutput.error) console.warn("SACAI_CLIENT: Error generating chat title:", titleOutput.error);
           })
-          .catch(err => console.error("Error in generateChatTitle API call:", err))
+          .catch(err => console.error("SACAI_CLIENT: Error in generateChatTitle API call:", err))
           .finally(() => setIsGeneratingTitle(false));
       }
     }
-  }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, setChatSessions]);
+  }, [chatSessions, activeChatId, currentUser, isGeneratingTitle, pageIsMounted, setChatSessions, isSendingMessage]);
 
 
   const handleRenameChat = (chatId: string, newTitle: string) => {
@@ -376,6 +379,7 @@ export default function ChatPage() {
     setDevOverrideSystemPrompt(tempOverrideSystemPrompt);
     setDevModelTemperature(tempModelTemperature);
     setIsDevSakaiAmbianceEnabled(tempIsDevSakaiAmbianceEnabled);
+    // isWebSearchEnabled and isDeepSakaiEnabled are controlled directly by UI switches now
     setIsDevSettingsOpen(false);
     toast({ title: "Paramètres développeur sauvegardés" });
   };
@@ -383,6 +387,9 @@ export default function ChatPage() {
   const handleResetDevSettings = () => {
     setTempOverrideSystemPrompt(''); setTempModelTemperature(0.7); setTempIsDevSakaiAmbianceEnabled(false);
     setDevOverrideSystemPrompt(''); setDevModelTemperature(undefined); setIsDevSakaiAmbianceEnabled(false);
+    // Also reset user-facing direct controls if desired, or keep them separate
+    // setIsWebSearchEnabled(false); 
+    // setIsDeepSakaiEnabled(false);
     toast({ title: "Paramètres développeur réinitialisés" });
   };
 
@@ -466,24 +473,31 @@ export default function ChatPage() {
       return;
     }
 
+    setIsSendingMessage(true); // Set isSendingMessage to true here
+
     const imageKeywords = ["génère une image de", "dessine-moi", "crée une image de", "photo de", "image de"];
     const lowerInput = currentInputVal.toLowerCase();
     let isImageRequestIntent = currentUploadedFiles.length === 0 && imageKeywords.some(keyword => lowerInput.startsWith(keyword));
 
     if (isImageRequestIntent) {
       const capturedInputForImage = currentInputVal; setInput(''); clearAllUploadedFiles();
+      // Note: handleImageGeneration sets isSendingMessage to false in its finally block.
+      // We already set it to true above, so this is fine.
       await handleImageGeneration(capturedInputForImage.replace(/^(génère une image de|dessine-moi|crée une image de|photo de|image de)\s*/i, '').trim());
-      return;
+      return; 
     }
 
     const userMessageId = `user-${Date.now()}`;
     const newUserMessageParts: ChatMessagePart[] = currentUploadedFiles.map(fw => ({ type: 'image', imageDataUri: fw.dataUri, mimeType: fw.file.type || 'application/octet-stream' }));
     if (currentInputVal) newUserMessageParts.push({ type: 'text', text: currentInputVal });
-    if (newUserMessageParts.length === 0) return;
+    if (newUserMessageParts.length === 0) {
+        setIsSendingMessage(false); // Reset if no parts
+        return;
+    }
     
     const newUserMessage: ChatMessage = { role: 'user', parts: newUserMessageParts, id: userMessageId, createdAt: Date.now() };
     const assistantMessageId = `model-${Date.now()}`;
-    setCurrentStreamingMessageId(assistantMessageId); setIsSendingMessage(true);
+    setCurrentStreamingMessageId(assistantMessageId); 
     const assistantPlaceholderMessage: ChatMessage = { role: 'model', parts: [{type: 'text', text: ''}], id: assistantMessageId, createdAt: Date.now() + 1 };
     
     const initialMessagesForThisChat = chatSessions.find(s => s.id === activeChatId)?.messages || [];
@@ -525,7 +539,8 @@ export default function ChatPage() {
         messagesForPersistence = messagesForImmediateDisplay.map(msg => msg.id === assistantMessageId ? { role: 'model', parts: [{ type: 'text', text: fallbackErrorMsg }], id: assistantMessageId, createdAt: Date.now() } : msg);
       }
       updateMessagesForActiveChat(messagesForPersistence);
-      setIsSendingMessage(false); setCurrentStreamingMessageId(null);
+      setIsSendingMessage(false); 
+      setCurrentStreamingMessageId(null);
     }
   };
 
@@ -577,6 +592,7 @@ export default function ChatPage() {
       <main className={`flex-1 flex flex-col relative overflow-hidden bg-background dark:bg-black/20 transition-all duration-300 ease-in-out ${
         isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'
       }`}>
+        {/* Top Bar */}
         <div className={`fixed top-0 right-0 h-16 bg-card/80 backdrop-blur-md border-b border-border/70
                          flex items-center justify-between px-6 z-30 
                          ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
@@ -610,6 +626,7 @@ export default function ChatPage() {
           </div>
         </div>
 
+        {/* Chat Messages Area */}
         <div className="flex-1 overflow-y-auto" style={{ paddingTop: '4rem', paddingBottom: INPUT_BAR_ESTIMATED_MAX_HEIGHT }}>
             {activeChatId && activeChat ? (
             <ChatAssistant
@@ -633,6 +650,7 @@ export default function ChatPage() {
             )}
         </div>
         
+        {/* Input Bar Area */}
         {activeChatId && activeChat && (
             <div className={`fixed bottom-0 right-0 border-t border-border/70 bg-card/80 backdrop-blur-md
                             ${isSidebarCollapsed ? 'left-0 md:left-20' : 'left-0 md:left-72'}
@@ -702,10 +720,10 @@ export default function ChatPage() {
 
       <MemoryDialog isOpen={isMemoryDialogOpen} onOpenChange={setIsMemoryDialogOpen} currentMemory={userMemory} onSaveMemory={handleSaveMemory} />
       <AlertDialog open={isFeaturesDialogOpen} onOpenChange={setIsFeaturesDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Zap className="h-5 w-5 text-primary"/>Fonctionnalités de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left max-h-[60vh] overflow-y-auto">Sakai est ton assistant IA personnel conçu pour t'aider dans une variété de tâches. Voici ce qu'il peut faire pour toi :<br/><br/><strong>Communication & Rédaction :</strong><br/>- Rédiger des emails, des scripts, des poèmes, des descriptions marketing, etc.<br/>- Résumer des textes longs, expliquer des concepts complexes.<br/>- Traduire des textes entre plusieurs langues (principalement vers et depuis le Français).<br/><br/><strong>Organisation & Planification :</strong><br/>- T'aider à organiser tes idées, planifier des voyages, créer des listes de tâches.<br/>- Générer des idées créatives pour tes projets personnels ou professionnels.<br/><br/><strong>Analyse & Traitement de Fichiers :</strong><br/>- Analyser le contenu d'images (JPG, PNG, WEBP), de PDF, et de fichiers texte (.txt, .md) que tu télécharges.<br/>- Répondre à tes questions sur la base des documents fournis.<br/><br/><strong>Création & Divertissement :</strong><br/>- Générer des images uniques à partir de tes descriptions textuelles.<br/>- Te raconter des blagues ou de courtes histoires.<br/><br/><strong>Utilisation Avancée :</strong><br/>- <strong>Mode Web :</strong> Si activé, Sakai peut tenter de chercher des informations sur internet (via DuckDuckGo) pour répondre à des questions nécessitant des données récentes. Il citera ses sources.<br/>- <strong>Mode DeepSakai :</strong> Si activé, Sakai adoptera une approche plus analytique, fournissant des réponses plus longues, détaillées et explorant diverses facettes du sujet.<br/>- <strong>Personnalités :</strong> Choisis une personnalité pour Sakai (Développeur, Coach, Humoriste) pour adapter son style de réponse.<br/>- <strong>Mémoire :</strong> Utilise le "Panneau de Mémoire" pour donner à Sakai des informations persistantes sur toi, tes préférences ou des contextes spécifiques.<br/><br/>Sakai apprend et s'améliore continuellement. N'hésite pas à explorer ses capacités !</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsFeaturesDialogOpen(false)}>Compris !</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p><strong>Sakai</strong> est une Intelligence Artificielle conversationnelle de nouvelle génération, fièrement conçue et développée par <strong>MAMPIONONTIAKO Tantely Etienne Théodore</strong>, un développeur et passionné d'IA originaire de Madagascar.</p><p className="mt-2">Mon objectif est de fournir une assistance intelligente, créative et personnalisée. Je suis construit avec les dernières technologies, notamment Genkit de Google pour mes capacités IA, et une interface utilisateur moderne bâtie avec Next.js et React.</p><p className="mt-2">Je suis en constante évolution. Vos interactions m'aident à apprendre et à m'améliorer. Merci d'utiliser Sakai !</p></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/>À propos de Sakai</AlertDialogTitle><AlertDialogDescription className="text-left"><p><strong>Sakai</strong> est une Intelligence Artificielle conversationnelle de nouvelle génération, fièrement conçue et développée par <strong>MAMPIONONTIAKO Tantely Etienne Théodore</strong>, un développeur et passionné d'IA originaire de Madagascar.</p><p className="mt-2">Mon objectif est de fournir une assistance intelligente, créative et personnalisée. Je suis construit avec les dernières technologies, notamment Genkit de Google pour mes capacités IA, et une interface utilisateur moderne bâtie avec Next.js et React.</p><p className="mt-2">Je suis en constante évolution. Vos interactions m'aident à apprendre et à m'améliorer. Merci d'utiliser Sakai !</p><p className="mt-3 text-xs">Version: 1.0.0 - Sakai Chat</p></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsAboutDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <AlertDialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><Mail className="h-5 w-5 text-primary"/>Contacter le créateur</AlertDialogTitle><AlertDialogDescription className="text-left"><p>Pour toute question, suggestion, ou si vous souhaitez simplement discuter du projet Sakai, vous pouvez contacter son créateur, <strong>MAMPIONONTIAKO Tantely Etienne Théodore</strong> :</p><ul className="list-disc list-inside mt-3 space-y-1"><li><strong>Email :</strong> <a href="mailto:tantelyetumamp@gmail.com" className="text-primary hover:underline">tantelyetumamp@gmail.com</a></li><li><strong>LinkedIn :</strong> <a href="https://www.linkedin.com/in/tantely-etienne-théodore-mampionontiako-179b73285/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Profil LinkedIn</a></li><li><strong>GitHub :</strong> <a href="https://github.com/tantelyeti" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Profil GitHub</a></li></ul></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogAction onClick={() => setIsContactDialogOpen(false)}>Fermer</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès pour modifier les paramètres avancés de Sakai (prompt système, température du modèle, etc.).</AlertDialogDescription></AlertDialogHeader><div className="py-2"><Input type="password" placeholder="Code d'accès" value={devCodeInput} onChange={(e) => setDevCodeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}/></div><AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}><DialogContent className="sm:max-w-[600px] bg-card"><DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés pour le comportement de Sakai. Ces paramètres sont pour les développeurs et peuvent affecter la performance ou la pertinence des réponses.</DialogDescription></DialogHeader><div className="grid gap-6 py-4"><div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laissez vide pour utiliser l'invite système par défaut de Sakai. Si rempli, cela surchargera complètement le prompt par défaut." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée si ce champ est rempli.</p></div><div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Contrôle l'aléa des réponses. Plus bas = plus déterministe/factuel. Plus haut = plus créatif/aléatoire.</p></div><div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (pensées aléatoires)</Label></div></div><DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Réinitialiser</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { /* Reset temp states to current live states */ setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setIsDevSettingsOpen(false);}}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter></DialogContent></Dialog>
+      <AlertDialog open={isDevCodePromptOpen} onOpenChange={setIsDevCodePromptOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary"/>Accès Mode Développeur</AlertDialogTitle><AlertDialogDescription>Veuillez entrer le code d'accès pour modifier les paramètres avancés de Sakai (prompt système, température du modèle, etc.). Les modes Web et DeepSakai sont accessibles directement via les icônes près du champ de saisie.</AlertDialogDescription></AlertDialogHeader><div className="py-2"><Input type="password" placeholder="Code d'accès" value={devCodeInput} onChange={(e) => setDevCodeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleDevCodeCheck()}/></div><AlertDialogFooter><AlertDialogCancel onClick={() => { setDevCodeInput(''); setIsDevCodePromptOpen(false); }}>Annuler</AlertDialogCancel><AlertDialogAction onClick={handleDevCodeCheck}>Valider</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <Dialog open={isDevSettingsOpen} onOpenChange={setIsDevSettingsOpen}><DialogContent className="sm:max-w-[600px] bg-card"><DialogHeader><DialogTitle className="text-xl flex items-center gap-2"><SlidersHorizontal className="h-6 w-6 text-primary"/>Paramètres Développeur</DialogTitle><DialogDescription>Modifiez ici les paramètres avancés pour le comportement de Sakai. Ces paramètres sont pour les développeurs et peuvent affecter la performance ou la pertinence des réponses.</DialogDescription></DialogHeader><div className="grid gap-6 py-4"><div className="grid gap-2"><Label htmlFor="dev-system-prompt" className="text-sm font-medium">System Prompt Personnalisé :</Label><Textarea id="dev-system-prompt" placeholder="Laissez vide pour utiliser l'invite système par défaut de Sakai. Si rempli, cela surchargera complètement le prompt par défaut." value={tempOverrideSystemPrompt} onChange={(e) => setTempOverrideSystemPrompt(e.target.value)} className="min-h-[150px] text-sm p-3 rounded-md border bg-background" rows={8}/><p className="text-xs text-muted-foreground">L'invite système de base sera remplacée si ce champ est rempli.</p></div><div className="grid gap-2"><Label htmlFor="dev-temperature" className="text-sm font-medium">Température du Modèle : <span className="text-primary font-semibold">{tempModelTemperature.toFixed(1)}</span></Label><Slider id="dev-temperature" min={0} max={1} step={0.1} value={[tempModelTemperature]} onValueChange={(value) => setTempModelTemperature(value[0])} className="w-full"/><p className="text-xs text-muted-foreground">Contrôle l'aléa des réponses. Plus bas = plus déterministe/factuel. Plus haut = plus créatif/aléatoire.</p></div><div className="flex items-center space-x-2"><Switch id="dev-sakai-ambiance" checked={tempIsDevSakaiAmbianceEnabled} onCheckedChange={setTempIsDevSakaiAmbianceEnabled}/><Label htmlFor="dev-sakai-ambiance" className="text-sm font-medium">Activer l'Ambiance Sakai (pensées aléatoires)</Label></div></div><DialogFooter className="gap-2 sm:gap-0"><Button type="button" variant="outline" onClick={handleResetDevSettings}>Réinitialiser</Button><DialogClose asChild><Button type="button" variant="ghost" onClick={() => { setTempOverrideSystemPrompt(devOverrideSystemPrompt); setTempModelTemperature(devModelTemperature ?? 0.7); setTempIsDevSakaiAmbianceEnabled(isDevSakaiAmbianceEnabled); setIsDevSettingsOpen(false);}}>Annuler</Button></DialogClose><Button type="button" onClick={handleSaveDevSettings}>Sauvegarder</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
