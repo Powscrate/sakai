@@ -1,3 +1,4 @@
+
 // src/ai/flows/chat-assistant-flow.ts
 'use server';
 /**
@@ -15,7 +16,7 @@ import type { MessageData, Part } from 'genkit';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { aiPersonalities, type AIPersonality as AppAIPersonality } from '@/app/page';
-import { webSearchTool } from '@/ai/tools/web-search-tool'; // Import de l'outil
+import { webSearchTool } from '@/ai/tools/web-search-tool'; 
 
 // Définition des schémas pour les messages multimodaux
 const ChatMessagePartSchema = z.union([
@@ -223,7 +224,8 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
               { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
               { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+              // DIAGNOSTIC: Temporarily relax DANGEROUS_CONTENT filter
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
             ]
           },
         });
@@ -237,26 +239,17 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
               if (part.text) {
                 currentText += part.text;
               } else if (part.toolRequest) {
-                // Note: Real tool request handling would be more complex,
-                // involving calling the tool and sending back a toolResponse.
-                // For now, this indicates the model *wants* to use a tool.
-                // The actual tool execution and response loop is not fully implemented here for simplicity in streaming.
-                // Genkit handles this internally when tools are configured and used properly.
-                // This console log is for visibility.
                 console.log("SACAI_FLOW: Model requested tool use:", JSON.stringify(part.toolRequest, null, 2));
-                // currentText += `\n[Sakai a utilisé l'outil: ${part.toolRequest.name} avec les entrées: ${JSON.stringify(part.toolRequest.input).substring(0,50)}...]\n`;
               }
             }
           }
           if (currentText) {
-            // console.log("SACAI_FLOW: Enqueuing text chunk:", currentText.substring(0, 50) + "...");
             controller.enqueue({ text: currentText });
           }
         }
 
         console.log("SACAI_FLOW: Stream finished, awaiting final response promise.");
         const finalResponse = await genkitResponsePromise;
-        // console.log("SACAI_FLOW: Final response received:", JSON.stringify(finalResponse, null, 2).substring(0, 500) + "...");
         console.log("SACAI_FLOW: Final response received (usage and finish reason):", {
           usage: finalResponse.usage,
           finishReason: finalResponse.candidates?.[0]?.finishReason,
@@ -274,15 +267,22 @@ Prends en compte la "Mémoire Utilisateur" si elle est fournie, elle contient de
                     if (lastCandidate.finishMessage) {
                         finishMessage += ` Détail: ${lastCandidate.finishMessage}`;
                     }
+                     // Check if this message part is already the FAILED_PRECONDITION one.
+                    if (finishMessage.includes("FAILED_PRECONDITION") || (lastCandidate.finishMessage && lastCandidate.finishMessage.includes("FAILED_PRECONDITION"))) {
+                        // Error already contains the core issue, pass it as is.
+                    } else if (lastCandidate.finishReason === "SAFETY") {
+                        finishMessage = `La génération a été bloquée par les filtres de sécurité. ${lastCandidate.finishMessage || ''}`.trim();
+                    }
+
                     if (controller.desiredSize !== null && controller.desiredSize > 0) {
                         controller.enqueue({ error: finishMessage.trim() });
                     }
                 }
-            } else if (finalResponse.promptFeedback) { // No candidates, but promptFeedback exists
+            } else if (finalResponse.promptFeedback) { 
                 const blockReason = finalResponse.promptFeedback.blockReason;
                 const blockMessage = finalResponse.promptFeedback.blockReasonMessage;
                 let errorMessage = `La requête a été bloquée. Raison: ${blockReason || 'Inconnue'}.`;
-                if (blockMessage) errorMessage += ` Message: ${blockMessage}`;
+                if (blockMessage) errorMessage += ` Message: ${blockMessage}`; // This is likely "FAILED_PRECONDITION: Generation blocked"
                 console.warn("SACAI_FLOW: Prompt blocked or no candidates:", errorMessage, JSON.stringify(finalResponse.promptFeedback, null, 2));
                 if (controller.desiredSize !== null && controller.desiredSize > 0) {
                     controller.enqueue({ error: errorMessage });
